@@ -790,6 +790,22 @@ EOF
 EOF
         sudo mv /tmp/90-stack-s.conf /etc/rsyslog.d
     fi
+
+    RSYSLOGCONF="/etc/rsyslog.conf"
+    if [ -f $RSYSLOGCONF ]; then
+        sudo cp -b $RSYSLOGCONF $RSYSLOGCONF.bak
+        if [[ $(grep '$SystemLogRateLimitBurst' $RSYSLOGCONF)  ]]; then
+            sudo sed -i 's/$SystemLogRateLimitBurst\ .*/$SystemLogRateLimitBurst\ 0/' $RSYSLOGCONF
+        else
+            sudo sed -i '$ i $SystemLogRateLimitBurst\ 0' $RSYSLOGCONF
+        fi
+        if [[ $(grep '$SystemLogRateLimitInterval' $RSYSLOGCONF)  ]]; then
+            sudo sed -i 's/$SystemLogRateLimitInterval\ .*/$SystemLogRateLimitInterval\ 0/' $RSYSLOGCONF
+        else
+            sudo sed -i '$ i $SystemLogRateLimitInterval\ 0' $RSYSLOGCONF
+        fi
+    fi
+
     echo_summary "Starting rsyslog"
     restart_service rsyslog
 fi
@@ -1064,6 +1080,27 @@ if is_service_enabled nova; then
         iniset $NOVA_CONF DEFAULT vmwareapi_host_username "$VMWAREAPI_USER"
         iniset $NOVA_CONF DEFAULT vmwareapi_host_password "$VMWAREAPI_PASSWORD"
         iniset $NOVA_CONF DEFAULT vmwareapi_cluster_name "$VMWAREAPI_CLUSTER"
+
+    # fake
+    # -----
+
+    elif [ "$VIRT_DRIVER" = 'fake' ]; then
+        echo_summary "Using fake Virt driver"
+        iniset $NOVA_CONF DEFAULT compute_driver "nova.virt.fake.FakeDriver"
+        # Disable arbitrary limits
+        iniset $NOVA_CONF DEFAULT quota_instances -1
+        iniset $NOVA_CONF DEFAULT quota_cores -1
+        iniset $NOVA_CONF DEFAULT quota_ram -1
+        iniset $NOVA_CONF DEFAULT quota_floating_ips -1
+        iniset $NOVA_CONF DEFAULT quota_fixed_ips -1
+        iniset $NOVA_CONF DEFAULT quota_metadata_items -1
+        iniset $NOVA_CONF DEFAULT quota_injected_files -1
+        iniset $NOVA_CONF DEFAULT quota_injected_file_path_bytes -1
+        iniset $NOVA_CONF DEFAULT quota_security_groups -1
+        iniset $NOVA_CONF DEFAULT quota_security_group_rules -1
+        iniset $NOVA_CONF DEFAULT quota_key_pairs -1
+        iniset $NOVA_CONF DEFAULT scheduler_default_filters "RetryFilter,AvailabilityZoneFilter,ComputeFilter,ComputeCapabilitiesFilter,ImagePropertiesFilter"
+
 
     # Default
     # -------
