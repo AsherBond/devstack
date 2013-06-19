@@ -43,8 +43,8 @@ function quantum_plugin_configure_plugin_agent() {
     if [[ "$OVS_ENABLE_TUNNELING" = "True" ]]; then
         # Verify tunnels are supported
         # REVISIT - also check kernel module support for GRE and patch ports
-        OVS_VERSION=`ovs-vsctl --version | head -n 1 | awk '{print $4;}'`
-        if [ $OVS_VERSION \< "1.4" ] && ! is_service_enabled q-svc ; then
+        OVS_VERSION=`ovs-vsctl --version | head -n 1 | grep -E -o "[0-9]+\.[0-9]+"`
+        if [ `vercmp_numbers "$OVS_VERSION" "1.4"` -lt "0" ] && ! is_service_enabled q-svc ; then
             die $LINENO "You are running OVS version $OVS_VERSION. OVS 1.4+ is required for tunneling between multiple hosts."
         fi
         iniset /$Q_PLUGIN_CONF_FILE OVS enable_tunneling True
@@ -102,6 +102,20 @@ function quantum_plugin_configure_plugin_agent() {
         # Set root wrap
         iniset "/$Q_PLUGIN_CONF_FILE.domU" AGENT root_helper "$Q_RR_COMMAND"
     fi
+    # Define extra "AGENT" configuration options when q-agt is configured by defining
+    # defining the array ``Q_AGENT_EXTRA_AGENT_OPTS``.
+    # For Example: ``Q_AGENT_EXTRA_AGENT_OPTS=(foo=true bar=2)``
+    for I in "${Q_AGENT_EXTRA_AGENT_OPTS[@]}"; do
+        # Replace the first '=' with ' ' for iniset syntax
+        iniset /$Q_PLUGIN_CONF_FILE AGENT ${I/=/ }
+    done
+    # Define extra "OVS" configuration options when q-agt is configured by defining
+    # defining the array ``Q_AGENT_EXTRA_SRV_OPTS``.
+    # For Example: ``Q_AGENT_EXTRA_SRV_OPTS=(foo=true bar=2)``
+    for I in "${Q_AGENT_EXTRA_SRV_OPTS[@]}"; do
+        # Replace the first '=' with ' ' for iniset syntax
+        iniset /$Q_PLUGIN_CONF_FILE OVS ${I/=/ }
+    done
 }
 
 function quantum_plugin_setup_interface_driver() {
