@@ -266,7 +266,6 @@ sudo chown -R $STACK_USER $DATA_DIR
 FLOATING_RANGE=${FLOATING_RANGE:-172.24.4.224/28}
 FIXED_RANGE=${FIXED_RANGE:-10.0.0.0/24}
 FIXED_NETWORK_SIZE=${FIXED_NETWORK_SIZE:-256}
-NETWORK_GATEWAY=${NETWORK_GATEWAY:-10.0.0.1}
 
 HOST_IP=$(get_default_host_ip $FIXED_RANGE $FLOATING_RANGE "$HOST_IP_IFACE" "$HOST_IP")
 if [ "$HOST_IP" == "" ]; then
@@ -1001,6 +1000,9 @@ if is_service_enabled nova; then
 
     if [ "$VIRT_DRIVER" = 'xenserver' ]; then
         echo_summary "Using XenServer virtualization driver"
+        if [ -z "$XENAPI_CONNECTION_URL" ]; then
+            die $LINENO "XENAPI_CONNECTION_URL is not specified"
+        fi
         read_password XENAPI_PASSWORD "ENTER A PASSWORD TO USE FOR XEN."
         iniset $NOVA_CONF DEFAULT compute_driver "xenapi.XenAPIDriver"
         iniset $NOVA_CONF DEFAULT xenapi_connection_url "$XENAPI_CONNECTION_URL"
