@@ -42,11 +42,12 @@ function neutron_plugin_configure_common() {
     Q_PLUGIN_CONF_PATH=etc/neutron/plugins/nicira
     Q_PLUGIN_CONF_FILENAME=nvp.ini
     Q_DB_NAME="neutron_nvp"
-    Q_PLUGIN_CLASS="neutron.plugins.nicira.nicira_nvp_plugin.NeutronPlugin.NvpPluginV2"
+    Q_PLUGIN_CLASS="neutron.plugins.nicira.NeutronPlugin.NvpPluginV2"
 }
 
 function neutron_plugin_configure_debug_command() {
     sudo ovs-vsctl --no-wait -- --may-exist add-br $PUBLIC_BRIDGE
+    iniset $NEUTRON_TEST_CONFIG_FILE DEFAULT external_network_bridge "$PUBLIC_BRIDGE"
 }
 
 function neutron_plugin_configure_dhcp_agent() {

@@ -836,7 +836,7 @@ fi
 # Clear screen rc file
 SCREENRC=$TOP_DIR/$SCREEN_NAME-screenrc
 if [[ -e $SCREENRC ]]; then
-    echo -n > $SCREENRC
+    rm -f $SCREENRC
 fi
 
 # Initialize the directory for service status check
@@ -880,6 +880,10 @@ if is_service_enabled key; then
     create_nova_accounts
     create_cinder_accounts
     create_neutron_accounts
+
+    if is_service_enabled swift || is_service_enabled s-proxy; then
+        create_swift_accounts
+    fi
 
     # ``keystone_data.sh`` creates services, admin and demo users, and roles.
     ADMIN_PASSWORD=$ADMIN_PASSWORD SERVICE_TENANT_NAME=$SERVICE_TENANT_NAME SERVICE_PASSWORD=$SERVICE_PASSWORD \
@@ -1080,7 +1084,9 @@ if is_service_enabled nova; then
         iniset $NOVA_CONF DEFAULT vmwareapi_host_username "$VMWAREAPI_USER"
         iniset $NOVA_CONF DEFAULT vmwareapi_host_password "$VMWAREAPI_PASSWORD"
         iniset $NOVA_CONF DEFAULT vmwareapi_cluster_name "$VMWAREAPI_CLUSTER"
-
+        if is_service_enabled neutron; then
+            iniset $NOVA_CONF vmware integration_bridge $OVS_BRIDGE
+        fi
 
     # fake
     # ----
