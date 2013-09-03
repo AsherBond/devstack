@@ -234,8 +234,10 @@ else
 fi
 
 # Create the destination directory and ensure it is writable by the user
+# and read/executable by everybody for daemons (e.g. apache run for horizon)
 sudo mkdir -p $DEST
 sudo chown -R $STACK_USER $DEST
+chmod 0755 $DEST
 
 # a basic test for $DEST path permissions (fatal on error unless skipped)
 check_path_perm_sanity ${DEST}
@@ -249,6 +251,9 @@ OFFLINE=`trueorfalse False $OFFLINE`
 # the destination git repository does not exist during the ``git_clone``
 # operation.
 ERROR_ON_CLONE=`trueorfalse False $ERROR_ON_CLONE`
+
+# Whether to enable the debug log level in OpenStack services
+ENABLE_DEBUG_LOG_LEVEL=`trueorfalse True $ENABLE_DEBUG_LOG_LEVEL`
 
 # Destination path for service data
 DATA_DIR=${DATA_DIR:-${DEST}/data}
@@ -313,6 +318,13 @@ source $TOP_DIR/lib/heat
 source $TOP_DIR/lib/neutron
 source $TOP_DIR/lib/baremetal
 source $TOP_DIR/lib/ldap
+
+# Look for Nova hypervisor plugin
+NOVA_PLUGINS=$TOP_DIR/lib/nova_plugins
+if is_service_enabled nova && [[ -r $NOVA_PLUGINS/hypervisor-$VIRT_DRIVER ]]; then
+    # Load plugin
+    source $NOVA_PLUGINS/hypervisor-$VIRT_DRIVER
+fi
 
 # Set the destination directories for other OpenStack projects
 OPENSTACKCLIENT_DIR=$DEST/python-openstackclient
@@ -580,6 +592,10 @@ source $TOP_DIR/tools/install_prereqs.sh
 
 # Configure an appropriate python environment
 $TOP_DIR/tools/install_pip.sh
+
+# Do the ugly hacks for borken packages and distros
+$TOP_DIR/tools/fixup_stuff.sh
+
 
 # System-specific preconfigure
 # ============================
@@ -1004,6 +1020,10 @@ if is_service_enabled cinder; then
     init_cinder
 fi
 
+
+# Compute Service
+# ---------------
+
 if is_service_enabled nova; then
     echo_summary "Configuring Nova"
     # Rebuild the config file from scratch
@@ -1018,10 +1038,15 @@ if is_service_enabled nova; then
     fi
 
 
+    if [[ -r $NOVA_PLUGINS/hypervisor-$VIRT_DRIVER ]]; then
+        # Configure hypervisor plugin
+        configure_nova_hypervisor
+
+
     # XenServer
     # ---------
 
-    if [ "$VIRT_DRIVER" = 'xenserver' ]; then
+    elif [ "$VIRT_DRIVER" = 'xenserver' ]; then
         echo_summary "Using XenServer virtualization driver"
         if [ -z "$XENAPI_CONNECTION_URL" ]; then
             die $LINENO "XENAPI_CONNECTION_URL is not specified"
