@@ -2,8 +2,8 @@
 
 # ``stack.sh`` is an opinionated OpenStack developer installation.  It
 # installs and configures various combinations of **Ceilometer**, **Cinder**,
-# **Glance**, **Heat**, **Horizon**, **Keystone**, **Nova**, **Neutron**
-# and **Swift**.
+# **Glance**, **Heat**, **Horizon**, **Keystone**, **Nova**, **Neutron**,
+# **Swift**, and **Trove**
 
 # This script allows you to specify configuration options of what git
 # repositories to use, enabled services, network configuration and various
@@ -203,7 +203,7 @@ if [[ $EUID -eq 0 ]]; then
     echo "Copying files to $STACK_USER user"
     STACK_DIR="$DEST/${TOP_DIR##*/}"
     cp -r -f -T "$TOP_DIR" "$STACK_DIR"
-    chown -R $STACK_USER "$STACK_DIR"
+    safe_chown -R $STACK_USER "$STACK_DIR"
     cd "$STACK_DIR"
     if [[ "$SHELL_AFTER_RUN" != "no" ]]; then
         exec sudo -u $STACK_USER  bash -l -c "set -e; bash stack.sh; bash"
@@ -236,8 +236,8 @@ fi
 # Create the destination directory and ensure it is writable by the user
 # and read/executable by everybody for daemons (e.g. apache run for horizon)
 sudo mkdir -p $DEST
-sudo chown -R $STACK_USER $DEST
-chmod 0755 $DEST
+safe_chown -R $STACK_USER $DEST
+safe_chmod 0755 $DEST
 
 # a basic test for $DEST path permissions (fatal on error unless skipped)
 check_path_perm_sanity ${DEST}
@@ -258,7 +258,7 @@ ENABLE_DEBUG_LOG_LEVEL=`trueorfalse True $ENABLE_DEBUG_LOG_LEVEL`
 # Destination path for service data
 DATA_DIR=${DATA_DIR:-${DEST}/data}
 sudo mkdir -p $DATA_DIR
-sudo chown -R $STACK_USER $DATA_DIR
+safe_chown -R $STACK_USER $DATA_DIR
 
 
 # Common Configuration
@@ -319,6 +319,7 @@ source $TOP_DIR/lib/neutron
 source $TOP_DIR/lib/baremetal
 source $TOP_DIR/lib/ldap
 source $TOP_DIR/lib/ironic
+source $TOP_DIR/lib/trove
 
 # Look for Nova hypervisor plugin
 NOVA_PLUGINS=$TOP_DIR/lib/nova_plugins
@@ -720,6 +721,12 @@ if is_service_enabled heat; then
     configure_heat
 fi
 
+if is_service_enabled trove; then
+    install_trove
+    install_troveclient
+    cleanup_trove
+fi
+
 if is_service_enabled tls-proxy; then
     configure_CA
     init_CA
@@ -860,6 +867,10 @@ if is_service_enabled key; then
     create_cinder_accounts
     create_neutron_accounts
 
+    if is_service_enabled trove; then
+        create_trove_accounts
+    fi
+
     if is_service_enabled swift || is_service_enabled s-proxy; then
         create_swift_accounts
     fi
@@ -954,7 +965,7 @@ if is_service_enabled n-net q-dhcp; then
     clean_iptables
     rm -rf ${NOVA_STATE_PATH}/networks
     sudo mkdir -p ${NOVA_STATE_PATH}/networks
-    sudo chown -R ${USER} ${NOVA_STATE_PATH}/networks
+    safe_chown -R ${USER} ${NOVA_STATE_PATH}/networks
     # Force IP forwarding on, just in case
     sudo sysctl -w net.ipv4.ip_forward=1
 fi
@@ -1236,6 +1247,18 @@ if is_service_enabled heat; then
     start_heat
 fi
 
+# Configure and launch the trove service api, and taskmanager
+if is_service_enabled trove; then
+    # Initialize trove
+    echo_summary "Configuring Trove"
+    configure_troveclient
+    configure_trove
+    init_trove
+
+    # Start the trove API and trove taskmgr components
+    echo_summary "Starting Trove"
+    start_trove
+fi
 
 # Create account rc files
 # =======================
