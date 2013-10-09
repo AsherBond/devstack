@@ -150,8 +150,8 @@ fi
 
 if [[ is_fedora && $DISTRO =~ (rhel6) ]]; then
     # Installing Open vSwitch on RHEL6 requires enabling the RDO repo.
-    RHEL6_RDO_REPO_RPM=${RHEL6_RDO_REPO_RPM:-"http://rdo.fedorapeople.org/openstack/openstack-grizzly/rdo-release-grizzly-3.noarch.rpm"}
-    RHEL6_RDO_REPO_ID=${RHEL6_RDO_REPO_ID:-"openstack-grizzly"}
+    RHEL6_RDO_REPO_RPM=${RHEL6_RDO_REPO_RPM:-"http://rdo.fedorapeople.org/openstack-havana/rdo-release-havana.rpm"}
+    RHEL6_RDO_REPO_ID=${RHEL6_RDO_REPO_ID:-"openstack-havana"}
     if ! yum repolist enabled $RHEL6_RDO_REPO_ID | grep -q $RHEL6_RDO_REPO_ID; then
         echo "RDO repo not detected; installing"
         yum_install $RHEL6_RDO_REPO_RPM || \
@@ -979,25 +979,6 @@ if is_service_enabled nova; then
     if [[ -r $NOVA_PLUGINS/hypervisor-$VIRT_DRIVER ]]; then
         # Configure hypervisor plugin
         configure_nova_hypervisor
-
-
-    # XenServer
-    # ---------
-
-    elif [ "$VIRT_DRIVER" = 'xenserver' ]; then
-        echo_summary "Using XenServer virtualization driver"
-        if [ -z "$XENAPI_CONNECTION_URL" ]; then
-            die $LINENO "XENAPI_CONNECTION_URL is not specified"
-        fi
-        read_password XENAPI_PASSWORD "ENTER A PASSWORD TO USE FOR XEN."
-        iniset $NOVA_CONF DEFAULT compute_driver "xenapi.XenAPIDriver"
-        iniset $NOVA_CONF DEFAULT xenapi_connection_url "$XENAPI_CONNECTION_URL"
-        iniset $NOVA_CONF DEFAULT xenapi_connection_username "$XENAPI_USER"
-        iniset $NOVA_CONF DEFAULT xenapi_connection_password "$XENAPI_PASSWORD"
-        iniset $NOVA_CONF DEFAULT flat_injected "False"
-        # Need to avoid crash due to new firewall support
-        XEN_FIREWALL_DRIVER=${XEN_FIREWALL_DRIVER:-"nova.virt.firewall.IptablesFirewallDriver"}
-        iniset $NOVA_CONF DEFAULT firewall_driver "$XEN_FIREWALL_DRIVER"
 
 
     # OpenVZ
