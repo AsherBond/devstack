@@ -29,6 +29,9 @@ TOP_DIR=$(cd $(dirname "$0") && pwd)
 # Import common functions
 source $TOP_DIR/functions
 
+# Import config functions
+source $TOP_DIR/lib/config
+
 # Determine what system we are running on.  This provides ``os_VENDOR``,
 # ``os_RELEASE``, ``os_UPDATE``, ``os_PACKAGE``, ``os_CODENAME``
 # and ``DISTRO``
@@ -37,6 +40,25 @@ GetDistro
 
 # Global Settings
 # ===============
+
+# Check for a ``localrc`` section embedded in ``local.conf`` and extract if
+# ``localrc`` does not already exist
+
+# Phase: local
+rm -f $TOP_DIR/.localrc.auto
+if [[ -r $TOP_DIR/local.conf ]]; then
+    LRC=$(get_meta_section_files $TOP_DIR/local.conf local)
+    for lfile in $LRC; do
+        if [[ "$lfile" == "localrc" ]]; then
+            if [[ -r $TOP_DIR/localrc ]]; then
+                warn $LINENO "localrc and local.conf:[[local]] both exist, using localrc"
+            else
+                echo "# Generated file, do not exit" >$TOP_DIR/.localrc.auto
+                get_meta_section $TOP_DIR/local.conf local $lfile >>$TOP_DIR/.localrc.auto
+            fi
+        fi
+    done
+fi
 
 # ``stack.sh`` is customizable by setting environment variables.  Override a
 # default setting via export::
@@ -290,13 +312,6 @@ source $TOP_DIR/lib/baremetal
 source $TOP_DIR/lib/ldap
 source $TOP_DIR/lib/ironic
 source $TOP_DIR/lib/trove
-
-# Look for Nova hypervisor plugin
-NOVA_PLUGINS=$TOP_DIR/lib/nova_plugins
-if is_service_enabled nova && [[ -r $NOVA_PLUGINS/hypervisor-$VIRT_DRIVER ]]; then
-    # Load plugin
-    source $NOVA_PLUGINS/hypervisor-$VIRT_DRIVER
-fi
 
 # Set the destination directories for other OpenStack projects
 OPENSTACKCLIENT_DIR=$DEST/python-openstackclient
@@ -812,6 +827,9 @@ if is_service_enabled sysstat;then
 fi
 
 
+# Start Services
+# ==============
+
 # Keystone
 # --------
 
@@ -882,6 +900,7 @@ if is_service_enabled g-reg; then
     init_glance
 fi
 
+
 # Ironic
 # ------
 
@@ -889,7 +908,6 @@ if is_service_enabled ir-api ir-cond; then
     echo_summary "Configuring Ironic"
     init_ironic
 fi
-
 
 
 # Neutron
@@ -916,11 +934,6 @@ fi
 
 # Nova
 # ----
-
-if is_service_enabled nova; then
-    echo_summary "Configuring Nova"
-    configure_nova
-fi
 
 if is_service_enabled n-net q-dhcp; then
     # Delete traces of nova networks from prior runs
@@ -964,8 +977,6 @@ fi
 
 if is_service_enabled nova; then
     echo_summary "Configuring Nova"
-    # Rebuild the config file from scratch
-    create_nova_conf
     init_nova
 
     # Additional Nova configuration that is dependent on other services
@@ -973,85 +984,6 @@ if is_service_enabled nova; then
         create_nova_conf_neutron
     elif is_service_enabled n-net; then
         create_nova_conf_nova_network
-    fi
-
-
-    if [[ -r $NOVA_PLUGINS/hypervisor-$VIRT_DRIVER ]]; then
-        # Configure hypervisor plugin
-        configure_nova_hypervisor
-
-
-    # OpenVZ
-    # ------
-
-    elif [ "$VIRT_DRIVER" = 'openvz' ]; then
-        echo_summary "Using OpenVZ virtualization driver"
-        iniset $NOVA_CONF DEFAULT compute_driver "openvz.OpenVzDriver"
-        iniset $NOVA_CONF DEFAULT connection_type "openvz"
-        LIBVIRT_FIREWALL_DRIVER=${LIBVIRT_FIREWALL_DRIVER:-"nova.virt.libvirt.firewall.IptablesFirewallDriver"}
-        iniset $NOVA_CONF DEFAULT firewall_driver "$LIBVIRT_FIREWALL_DRIVER"
-
-
-    # Bare Metal
-    # ----------
-
-    elif [ "$VIRT_DRIVER" = 'baremetal' ]; then
-        echo_summary "Using BareMetal driver"
-        LIBVIRT_FIREWALL_DRIVER=${LIBVIRT_FIREWALL_DRIVER:-"nova.virt.firewall.NoopFirewallDriver"}
-        iniset $NOVA_CONF DEFAULT compute_driver nova.virt.baremetal.driver.BareMetalDriver
-        iniset $NOVA_CONF DEFAULT firewall_driver $LIBVIRT_FIREWALL_DRIVER
-        iniset $NOVA_CONF DEFAULT scheduler_host_manager nova.scheduler.baremetal_host_manager.BaremetalHostManager
-        iniset $NOVA_CONF DEFAULT ram_allocation_ratio 1.0
-        iniset $NOVA_CONF DEFAULT reserved_host_memory_mb 0
-        iniset $NOVA_CONF baremetal instance_type_extra_specs cpu_arch:$BM_CPU_ARCH
-        iniset $NOVA_CONF baremetal driver $BM_DRIVER
-        iniset $NOVA_CONF baremetal power_manager $BM_POWER_MANAGER
-        iniset $NOVA_CONF baremetal tftp_root /tftpboot
-        if [[ "$BM_DNSMASQ_FROM_NOVA_NETWORK" = "True" ]]; then
-            BM_DNSMASQ_CONF=$NOVA_CONF_DIR/dnsmasq-for-baremetal-from-nova-network.conf
-            sudo cp "$FILES/dnsmasq-for-baremetal-from-nova-network.conf" "$BM_DNSMASQ_CONF"
-            iniset $NOVA_CONF DEFAULT dnsmasq_config_file "$BM_DNSMASQ_CONF"
-        fi
-
-        # Define extra baremetal nova conf flags by defining the array ``EXTRA_BAREMETAL_OPTS``.
-        for I in "${EXTRA_BAREMETAL_OPTS[@]}"; do
-           # Attempt to convert flags to options
-           iniset $NOVA_CONF baremetal ${I/=/ }
-        done
-
-
-   # PowerVM
-   # -------
-
-    elif [ "$VIRT_DRIVER" = 'powervm' ]; then
-        echo_summary "Using PowerVM driver"
-        POWERVM_MGR_TYPE=${POWERVM_MGR_TYPE:-"ivm"}
-        POWERVM_MGR_HOST=${POWERVM_MGR_HOST:-"powervm.host"}
-        POWERVM_MGR_USER=${POWERVM_MGR_USER:-"padmin"}
-        POWERVM_MGR_PASSWD=${POWERVM_MGR_PASSWD:-"password"}
-        POWERVM_IMG_REMOTE_PATH=${POWERVM_IMG_REMOTE_PATH:-"/tmp"}
-        POWERVM_IMG_LOCAL_PATH=${POWERVM_IMG_LOCAL_PATH:-"/tmp"}
-        iniset $NOVA_CONF DEFAULT compute_driver nova.virt.powervm.PowerVMDriver
-        iniset $NOVA_CONF DEFAULT powervm_mgr_type $POWERVM_MGR_TYPE
-        iniset $NOVA_CONF DEFAULT powervm_mgr $POWERVM_MGR_HOST
-        iniset $NOVA_CONF DEFAULT powervm_mgr_user $POWERVM_MGR_USER
-        iniset $NOVA_CONF DEFAULT powervm_mgr_passwd $POWERVM_MGR_PASSWD
-        iniset $NOVA_CONF DEFAULT powervm_img_remote_path $POWERVM_IMG_REMOTE_PATH
-        iniset $NOVA_CONF DEFAULT powervm_img_local_path $POWERVM_IMG_LOCAL_PATH
-
-
-    # Default libvirt
-    # ---------------
-
-    else
-        echo_summary "Using libvirt virtualization driver"
-        iniset $NOVA_CONF DEFAULT compute_driver "libvirt.LibvirtDriver"
-        LIBVIRT_FIREWALL_DRIVER=${LIBVIRT_FIREWALL_DRIVER:-"nova.virt.libvirt.firewall.IptablesFirewallDriver"}
-        iniset $NOVA_CONF DEFAULT firewall_driver "$LIBVIRT_FIREWALL_DRIVER"
-        # Power architecture currently does not support graphical consoles.
-        if is_arch "ppc64"; then
-            iniset $NOVA_CONF DEFAULT vnc_enabled "false"
-        fi
     fi
 
     init_nova_cells
@@ -1066,6 +998,14 @@ if is_service_enabled nova && is_baremetal; then
        create_fake_baremetal_env
     fi
 fi
+
+
+# Local Configuration
+# ===================
+
+# Apply configuration from local.conf if it exists for layer 2 services
+# Phase: post-config
+merge_config_group $TOP_DIR/local.conf post-config
 
 
 # Launch Services
@@ -1263,6 +1203,14 @@ for i in BASE_SQL_CONN ENABLED_SERVICES HOST_IP LOGFILE \
 done
 
 
+# Local Configuration
+# ===================
+
+# Apply configuration from local.conf if it exists for layer 2 services
+# Phase: extra
+merge_config_group $TOP_DIR/local.conf extra
+
+
 # Run extras
 # ==========
 
@@ -1333,6 +1281,67 @@ echo "This is your host ip: $HOST_IP"
 # Warn that a deprecated feature was used
 if [[ -n "$DEPRECATED_TEXT" ]]; then
     echo_summary "WARNING: $DEPRECATED_TEXT"
+fi
+
+# Specific warning for deprecated configs
+if [[ -n "$EXTRA_OPTS" ]]; then
+    echo ""
+    echo_summary "WARNING: EXTRA_OPTS is used"
+    echo "You are using EXTRA_OPTS to pass configuration into nova.conf."
+    echo "Please convert that configuration in localrc to a nova.conf section in local.conf:"
+    echo "
+[[post-config|\$NOVA_CONF]]
+[DEFAULT]
+"
+    for I in "${EXTRA_OPTS[@]}"; do
+        # Replace the first '=' with ' ' for iniset syntax
+        echo ${I}
+    done
+fi
+
+if [[ -n "$EXTRA_BAREMETAL_OPTS" ]]; then
+    echo ""
+    echo_summary "WARNING: EXTRA_OPTS is used"
+    echo "You are using EXTRA_OPTS to pass configuration into nova.conf."
+    echo "Please convert that configuration in localrc to a nova.conf section in local.conf:"
+    echo "
+[[post-config|\$NOVA_CONF]]
+[baremetal]
+"
+    for I in "${EXTRA_BAREMETAL_OPTS[@]}"; do
+        # Replace the first '=' with ' ' for iniset syntax
+        echo ${I}
+    done
+fi
+
+if [[ -n "$Q_DHCP_EXTRA_DEFAULT_OPTS" ]]; then
+    echo ""
+    echo_summary "WARNING: Q_DHCP_EXTRA_DEFAULT_OPTS is used"
+    echo "You are using Q_DHCP_EXTRA_DEFAULT_OPTS to pass configuration into $Q_DHCP_CONF_FILE."
+    echo "Please convert that configuration in localrc to a $Q_DHCP_CONF_FILE section in local.conf:"
+    echo "
+[[post-config|\$Q_DHCP_CONF_FILE]]
+[DEFAULT]
+"
+    for I in "${Q_DHCP_EXTRA_DEFAULT_OPTS[@]}"; do
+        # Replace the first '=' with ' ' for iniset syntax
+        echo ${I}
+    done
+fi
+
+if [[ -n "$Q_SRV_EXTRA_DEFAULT_OPTS" ]]; then
+    echo ""
+    echo_summary "WARNING: Q_SRV_EXTRA_DEFAULT_OPTS is used"
+    echo "You are using Q_SRV_EXTRA_DEFAULT_OPTS to pass configuration into $NEUTRON_CONF."
+    echo "Please convert that configuration in localrc to a $NEUTRON_CONF section in local.conf:"
+    echo "
+[[post-config|\$NEUTRON_CONF]]
+[DEFAULT]
+"
+    for I in "${Q_SRV_EXTRA_DEFAULT_OPTS[@]}"; do
+        # Replace the first '=' with ' ' for iniset syntax
+        echo ${I}
+    done
 fi
 
 # Indicate how long this took to run (bash maintained variable ``SECONDS``)
