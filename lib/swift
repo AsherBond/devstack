@@ -2,22 +2,24 @@
 # Functions to control the configuration and operation of the **Swift** service
 
 # Dependencies:
-# ``functions`` file
-# ``apache`` file
-# ``DEST``, ``SCREEN_NAME``, `SWIFT_HASH` must be defined
-# ``STACK_USER`` must be defined
-# ``SWIFT_DATA_DIR`` or ``DATA_DIR`` must be defined
-# ``lib/keystone`` file
+#
+# - ``functions`` file
+# - ``apache`` file
+# - ``DEST``, ``SCREEN_NAME``, `SWIFT_HASH` must be defined
+# - ``STACK_USER`` must be defined
+# - ``SWIFT_DATA_DIR`` or ``DATA_DIR`` must be defined
+# - ``lib/keystone`` file
+#
 # ``stack.sh`` calls the entry points in this order:
 #
-# install_swift
-# _config_swift_apache_wsgi
-# configure_swift
-# init_swift
-# start_swift
-# stop_swift
-# cleanup_swift
-# _cleanup_swift_apache_wsgi
+# - install_swift
+# - _config_swift_apache_wsgi
+# - configure_swift
+# - init_swift
+# - start_swift
+# - stop_swift
+# - cleanup_swift
+# - _cleanup_swift_apache_wsgi
 
 # Save trace setting
 XTRACE=$(set +o | grep xtrace)
@@ -71,6 +73,10 @@ SWIFT_EXTRAS_MIDDLEWARE=${SWIFT_EXTRAS_MIDDLEWARE:-tempurl formpost staticweb}
 # Set ``SWIFT_EXTRAS_MIDDLEWARE_LAST`` to extras middlewares that need to be at
 # the end of the pipeline.
 SWIFT_EXTRAS_MIDDLEWARE_LAST=${SWIFT_EXTRAS_MIDDLEWARE_LAST}
+
+# Set ``SWIFT_EXTRAS_MIDDLEWARE_NO_AUTH`` to extras middlewares that need to be at
+# the beginning of the pipeline, before authentication middlewares.
+SWIFT_EXTRAS_MIDDLEWARE_NO_AUTH=${SWIFT_EXTRAS_MIDDLEWARE_NO_AUTH:-crossdomain}
 
 # The ring uses a configurable number of bits from a path’s MD5 hash as
 # a partition index that designates a device. The number of bits kept
@@ -210,7 +216,7 @@ function _config_swift_apache_wsgi() {
 
 # configure_swift() - Set config files, create data dirs and loop image
 function configure_swift() {
-    local swift_pipeline=" "
+    local swift_pipeline="${SWIFT_EXTRAS_MIDDLEWARE_NO_AUTH}"
     local node_number
     local swift_node_config
     local swift_log_dir
@@ -268,10 +274,10 @@ function configure_swift() {
 
     # By default Swift will be installed with keystone and tempauth middleware
     # and add the swift3 middleware if its configured for it. The token for
-    # tempauth would be prefixed with the reseller_prefix setting TEMPAUTH_ the
-    # token for keystoneauth would have the standard reseller_prefix AUTH_
+    # tempauth would be prefixed with the reseller_prefix setting `TEMPAUTH_` the
+    # token for keystoneauth would have the standard reseller_prefix `AUTH_`
     if is_service_enabled swift3;then
-        swift_pipeline=" swift3 s3token "
+        swift_pipeline+=" swift3 s3token "
     fi
     swift_pipeline+=" authtoken keystoneauth tempauth "
     sed -i "/^pipeline/ { s/tempauth/${swift_pipeline} ${SWIFT_EXTRAS_MIDDLEWARE}/ ;}" ${SWIFT_CONFIG_PROXY_SERVER}
@@ -282,6 +288,9 @@ function configure_swift() {
 
     iniuncomment ${SWIFT_CONFIG_PROXY_SERVER} filter:tempauth reseller_prefix
     iniset ${SWIFT_CONFIG_PROXY_SERVER} filter:tempauth reseller_prefix "TEMPAUTH"
+
+    # Configure Crossdomain
+    iniset ${SWIFT_CONFIG_PROXY_SERVER} filter:crossdomain use "egg:swift#crossdomain"
 
     # Configure Keystone
     sed -i '/^# \[filter:authtoken\]/,/^# \[filter:keystoneauth\]$/ s/^#[ \t]*//' ${SWIFT_CONFIG_PROXY_SERVER}
@@ -617,6 +626,7 @@ function stop_swift() {
 # Restore xtrace
 $XTRACE
 
-# Local variables:
-# mode: shell-script
-# End:
+# Tell emacs to use shell-script-mode
+## Local variables:
+## mode: shell-script
+## End:

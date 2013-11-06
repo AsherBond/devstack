@@ -7,24 +7,24 @@
 
 # ``stack.sh`` calls the entry points in this order:
 #
-# install_neutron
-# install_neutronclient
-# install_neutron_agent_packages
-# install_neutron_third_party
-# configure_neutron
-# init_neutron
-# configure_neutron_third_party
-# init_neutron_third_party
-# start_neutron_third_party
-# create_nova_conf_neutron
-# start_neutron_service_and_check
-# create_neutron_initial_network
-# setup_neutron_debug
-# start_neutron_agents
+# - install_neutron
+# - install_neutronclient
+# - install_neutron_agent_packages
+# - install_neutron_third_party
+# - configure_neutron
+# - init_neutron
+# - configure_neutron_third_party
+# - init_neutron_third_party
+# - start_neutron_third_party
+# - create_nova_conf_neutron
+# - start_neutron_service_and_check
+# - create_neutron_initial_network
+# - setup_neutron_debug
+# - start_neutron_agents
 #
 # ``unstack.sh`` calls the entry points in this order:
 #
-# stop_neutron
+# - stop_neutron
 
 # Functions in lib/neutron are classified into the following categories:
 #
@@ -110,6 +110,10 @@ Q_ALLOW_OVERLAPPING_IP=${Q_ALLOW_OVERLAPPING_IP:-True}
 Q_USE_DEBUG_COMMAND=${Q_USE_DEBUG_COMMAND:-False}
 # The name of the default q-l3 router
 Q_ROUTER_NAME=${Q_ROUTER_NAME:-router1}
+# nova vif driver that all plugins should use
+NOVA_VIF_DRIVER=${NOVA_VIF_DRIVER:-"nova.virt.libvirt.vif.LibvirtGenericVIFDriver"}
+
+
 # List of config file names in addition to the main plugin config file
 # See _configure_neutron_common() for details about setting it up
 declare -a Q_PLUGIN_EXTRA_CONF_FILES
@@ -208,7 +212,7 @@ source $TOP_DIR/lib/neutron_plugins/services/loadbalancer
 source $TOP_DIR/lib/neutron_plugins/services/vpn
 
 # Firewall Service Plugin functions
-# --------------------------------
+# ---------------------------------
 source $TOP_DIR/lib/neutron_plugins/services/firewall
 
 # Use security group or not
@@ -268,6 +272,7 @@ function create_nova_conf_neutron() {
 
     if [[ "$Q_USE_SECGROUP" == "True" ]]; then
         LIBVIRT_FIREWALL_DRIVER=nova.virt.firewall.NoopFirewallDriver
+        iniset $NOVA_CONF DEFAULT firewall_driver $LIBVIRT_FIREWALL_DRIVER
         iniset $NOVA_CONF DEFAULT security_group_api neutron
     fi
 
@@ -494,6 +499,7 @@ function _configure_neutron_common() {
     # For main plugin config file, set ``Q_PLUGIN_CONF_PATH``, ``Q_PLUGIN_CONF_FILENAME``.
     # For addition plugin config files, set ``Q_PLUGIN_EXTRA_CONF_PATH``,
     # ``Q_PLUGIN_EXTRA_CONF_FILES``.  For example:
+    #
     #    ``Q_PLUGIN_EXTRA_CONF_FILES=(file1, file2)``
     neutron_plugin_configure_common
 
@@ -890,6 +896,7 @@ function stop_neutron_third_party() {
 # Restore xtrace
 $XTRACE
 
-# Local variables:
-# mode: shell-script
-# End:
+# Tell emacs to use shell-script-mode
+## Local variables:
+## mode: shell-script
+## End:
