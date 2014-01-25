@@ -23,6 +23,13 @@
 # Make sure custom grep options don't get in the way
 unset GREP_OPTIONS
 
+# Sanitize language settings to avoid commands bailing out
+# with "unsupported locale setting" errors.
+unset LANG
+unset LANGUAGE
+LC_ALL=C
+export LC_ALL
+
 # Keep track of the devstack directory
 TOP_DIR=$(cd $(dirname "$0") && pwd)
 
@@ -305,9 +312,13 @@ rm -f $SSL_BUNDLE_FILE
 # Configure Projects
 # ==================
 
-# Source project function libraries
+# Import apache functions
 source $TOP_DIR/lib/apache
+
+# Import TLS functions
 source $TOP_DIR/lib/tls
+
+# Source project function libraries
 source $TOP_DIR/lib/infra
 source $TOP_DIR/lib/oslo
 source $TOP_DIR/lib/stackforge
