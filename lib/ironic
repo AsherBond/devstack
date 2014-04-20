@@ -49,7 +49,7 @@ IRONIC_SSH_KEY_FILENAME=${IRONIC_SSH_KEY_FILENAME:-ironic_key}
 IRONIC_KEY_FILE=$IRONIC_SSH_KEY_DIR/$IRONIC_SSH_KEY_FILENAME
 IRONIC_SSH_VIRT_TYPE=${IRONIC_SSH_VIRT_TYPE:-virsh}
 IRONIC_TFTPBOOT_DIR=${IRONIC_TFTPBOOT_DIR:-$IRONIC_DATA_DIR/tftpboot}
-IRONIC_VM_SSH_PORT=${IRONIC_VM_SSH_PORT:-2222}
+IRONIC_VM_SSH_PORT=${IRONIC_VM_SSH_PORT:-22}
 IRONIC_VM_SSH_ADDRESS=${IRONIC_VM_SSH_ADDRESS:-$HOST_IP}
 IRONIC_VM_COUNT=${IRONIC_VM_COUNT:-1}
 IRONIC_VM_SPECS_CPU=${IRONIC_VM_SPECS_CPU:-1}
@@ -170,6 +170,15 @@ function configure_ironic_api {
 function configure_ironic_conductor {
     cp $IRONIC_DIR/etc/ironic/rootwrap.conf $IRONIC_ROOTWRAP_CONF
     cp -r $IRONIC_DIR/etc/ironic/rootwrap.d $IRONIC_CONF_DIR
+    IRONIC_ROOTWRAP=$(get_rootwrap_location ironic)
+    ROOTWRAP_ISUDOER_CMD="$IRONIC_ROOTWRAP $IRONIC_CONF_DIR/rootwrap.conf *"
+
+    # Set up the rootwrap sudoers for ironic
+    TEMPFILE=`mktemp`
+    echo "$STACK_USER ALL=(root) NOPASSWD: $ROOTWRAP_ISUDOER_CMD" >$TEMPFILE
+    chmod 0440 $TEMPFILE
+    sudo chown root:root $TEMPFILE
+    sudo mv $TEMPFILE /etc/sudoers.d/ironic-rootwrap
 
     iniset $IRONIC_CONF_FILE DEFAULT rootwrap_config $IRONIC_ROOTWRAP_CONF
     iniset $IRONIC_CONF_FILE DEFAULT drivers_whitelist $IRONIC_DRIVERS_WHITELIST
@@ -423,31 +432,10 @@ function ironic_ssh_check {
     fi
 }
 
-function configure_ironic_sshd {
-    # Ensure sshd server accepts connections from localhost only
-
-    SSH_CONFIG=/etc/ssh/sshd_config
-    HOST_PORT=$IRONIC_VM_SSH_ADDRESS:$IRONIC_VM_SSH_PORT
-    if ! sudo grep ListenAddress $SSH_CONFIG | grep $HOST_PORT; then
-        echo "ListenAddress $HOST_PORT" | sudo tee -a $SSH_CONFIG
-    fi
-
-    SSH_SERVICE_NAME=sshd
-    if is_ubuntu; then
-        SSH_SERVICE_NAME=ssh
-    fi
-
-    restart_service $SSH_SERVICE_NAME
-    # to ensure ssh service is up and running
-    sleep 3
-    ironic_ssh_check $IRONIC_SSH_KEY_DIR/$IRONIC_SSH_KEY_FILENAME $IRONIC_VM_SSH_ADDRESS $IRONIC_VM_SSH_PORT $IRONIC_SSH_USERNAME 10
-
-}
-
 function configure_ironic_auxiliary {
     configure_ironic_dirs
     configure_ironic_ssh_keypair
-    configure_ironic_sshd
+    ironic_ssh_check $IRONIC_SSH_KEY_DIR/$IRONIC_SSH_KEY_FILENAME $IRONIC_VM_SSH_ADDRESS $IRONIC_VM_SSH_PORT $IRONIC_SSH_USERNAME 10
 }
 
 # build deploy kernel+ramdisk, then upload them to glance
