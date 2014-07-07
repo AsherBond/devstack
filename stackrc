@@ -19,6 +19,9 @@ else
     STACK_USER=$(whoami)
 fi
 
+# Specify region name Region
+REGION_NAME=${REGION_NAME:-RegionOne}
+
 # Specify which services to launch.  These generally correspond to
 # screen tabs. To change the default list, use the ``enable_service`` and
 # ``disable_service`` functions in ``local.conf``.
@@ -182,6 +185,10 @@ OSLOCFG_BRANCH=${OSLOCFG_BRANCH:-master}
 # oslo.db
 OSLODB_REPO=${OSLODB_REPO:-${GIT_BASE}/openstack/oslo.db.git}
 OSLODB_BRANCH=${OSLODB_BRANCH:-master}
+
+# oslo.i18n
+OSLOI18N_REPO=${OSLOI18N_REPO:-${GIT_BASE}/openstack/oslo.i18n.git}
+OSLOI18N_BRANCH=${OSLOI18N_BRANCH:-master}
 
 # oslo.messaging
 OSLOMSG_REPO=${OSLOMSG_REPO:-${GIT_BASE}/openstack/oslo.messaging.git}
