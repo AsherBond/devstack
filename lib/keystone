@@ -47,7 +47,7 @@ KEYSTONECLIENT_DIR=$DEST/python-keystoneclient
 KEYSTONE_EXTENSIONS=${KEYSTONE_EXTENSIONS:-}
 
 # Toggle for deploying Keystone under HTTPD + mod_wsgi
-KEYSTONE_USE_MOD_WSGI=${KEYSTONE_USE_MOD_WSGI:-False}
+KEYSTONE_USE_MOD_WSGI=${KEYSTONE_USE_MOD_WSGI:-${ENABLE_HTTPD_MOD_WSGI_SERVICES}}
 
 # Select the backend for Keystone's service catalog
 KEYSTONE_CATALOG_BACKEND=${KEYSTONE_CATALOG_BACKEND:-sql}
@@ -191,6 +191,12 @@ function configure_keystone {
     # check if assignment backend is valid
     if [[ "$KEYSTONE_VALID_ASSIGNMENT_BACKENDS" =~ "$KEYSTONE_ASSIGNMENT_BACKEND" ]]; then
         iniset $KEYSTONE_CONF assignment driver "keystone.assignment.backends.$KEYSTONE_ASSIGNMENT_BACKEND.Assignment"
+    fi
+
+    # Configure rabbitmq credentials
+    if is_service_enabled rabbit; then
+        iniset $KEYSTONE_CONF DEFAULT rabbit_password $RABBIT_PASSWORD
+        iniset $KEYSTONE_CONF DEFAULT rabbit_host $RABBIT_HOST
     fi
 
     # Set the URL advertised in the ``versions`` structure returned by the '/' route
