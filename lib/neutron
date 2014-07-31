@@ -85,6 +85,8 @@ NEUTRON_CONF_DIR=/etc/neutron
 NEUTRON_CONF=$NEUTRON_CONF_DIR/neutron.conf
 export NEUTRON_TEST_CONFIG_FILE=${NEUTRON_TEST_CONFIG_FILE:-"$NEUTRON_CONF_DIR/debug.ini"}
 
+# Default name for Neutron database
+Q_DB_NAME=${Q_DB_NAME:-neutron}
 # Default Neutron Plugin
 Q_PLUGIN=${Q_PLUGIN:-ml2}
 # Default Neutron Port
@@ -386,9 +388,9 @@ function create_neutron_accounts {
                 "network" "Neutron Service")
             get_or_create_endpoint $NEUTRON_SERVICE \
                 "$REGION_NAME" \
-                "http://$SERVICE_HOST:9696/" \
-                "http://$SERVICE_HOST:9696/" \
-                "http://$SERVICE_HOST:9696/"
+                "http://$SERVICE_HOST:$Q_PORT/" \
+                "http://$SERVICE_HOST:$Q_PORT/" \
+                "http://$SERVICE_HOST:$Q_PORT/"
         fi
     fi
 }
@@ -685,14 +687,6 @@ function _configure_neutron_dhcp_agent {
     iniset $Q_DHCP_CONF_FILE DEFAULT use_namespaces $Q_USE_NAMESPACE
     iniset $Q_DHCP_CONF_FILE DEFAULT root_helper "$Q_RR_COMMAND"
 
-    # Define extra "DEFAULT" configuration options when q-dhcp is configured by
-    # defining the array ``Q_DHCP_EXTRA_DEFAULT_OPTS``.
-    # For Example: ``Q_DHCP_EXTRA_DEFAULT_OPTS=(foo=true bar=2)``
-    for I in "${Q_DHCP_EXTRA_DEFAULT_OPTS[@]}"; do
-        # Replace the first '=' with ' ' for iniset syntax
-        iniset $Q_DHCP_CONF_FILE DEFAULT ${I/=/ }
-    done
-
     _neutron_setup_interface_driver $Q_DHCP_CONF_FILE
 
     neutron_plugin_configure_dhcp_agent
@@ -813,14 +807,6 @@ function _configure_neutron_service {
 
     iniset $NEUTRON_CONF DEFAULT auth_strategy $Q_AUTH_STRATEGY
     _neutron_setup_keystone $NEUTRON_CONF keystone_authtoken
-
-    # Define extra "DEFAULT" configuration options when q-svc is configured by
-    # defining the array ``Q_SRV_EXTRA_DEFAULT_OPTS``.
-    # For Example: ``Q_SRV_EXTRA_DEFAULT_OPTS=(foo=true bar=2)``
-    for I in "${Q_SRV_EXTRA_DEFAULT_OPTS[@]}"; do
-        # Replace the first '=' with ' ' for iniset syntax
-        iniset $NEUTRON_CONF DEFAULT ${I/=/ }
-    done
 
     # Configuration for neutron notifations to nova.
     iniset $NEUTRON_CONF DEFAULT notify_nova_on_port_status_changes $Q_NOTIFY_NOVA_PORT_STATUS_CHANGES
