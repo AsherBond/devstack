@@ -95,7 +95,7 @@ fi
 # ``stackrc`` sources ``localrc`` to allow you to safely override those settings.
 
 if [[ ! -r $TOP_DIR/stackrc ]]; then
-    log_error $LINENO "missing $TOP_DIR/stackrc - did you grab more than just stack.sh?"
+    die $LINENO "missing $TOP_DIR/stackrc - did you grab more than just stack.sh?"
 fi
 source $TOP_DIR/stackrc
 
@@ -122,13 +122,13 @@ fi
 # templates and other useful files in the ``files`` subdirectory
 FILES=$TOP_DIR/files
 if [ ! -d $FILES ]; then
-    log_error $LINENO "missing devstack/files"
+    die $LINENO "missing devstack/files"
 fi
 
 # ``stack.sh`` keeps function libraries here
 # Make sure ``$TOP_DIR/lib`` directory is present
 if [ ! -d $TOP_DIR/lib ]; then
-    log_error $LINENO "missing devstack/lib"
+    die $LINENO "missing devstack/lib"
 fi
 
 # Import common services (database, message queue) configuration
@@ -142,7 +142,7 @@ disable_negated_services
 
 # Warn users who aren't on an explicitly supported distro, but allow them to
 # override check and attempt installation with ``FORCE=yes ./stack``
-if [[ ! ${DISTRO} =~ (precise|saucy|trusty|7.0|wheezy|sid|testing|jessie|f19|f20|rhel6|rhel7) ]]; then
+if [[ ! ${DISTRO} =~ (precise|trusty|7.0|wheezy|sid|testing|jessie|f19|f20|rhel6|rhel7) ]]; then
     echo "WARNING: this script has not been tested on $DISTRO"
     if [[ "$FORCE" != "yes" ]]; then
         die $LINENO "If you wish to run this script anyway run with FORCE=yes"
@@ -213,13 +213,21 @@ sudo mv $TEMPFILE /etc/sudoers.d/50_stack_sh
 
 # For debian/ubuntu make apt attempt to retry network ops on it's own
 if is_ubuntu; then
-    echo 'APT::Acquire::Retries "20";' | sudo tee /etc/apt/apt.conf.d/80retry
+    echo 'APT::Acquire::Retries "20";' | sudo tee /etc/apt/apt.conf.d/80retry  >/dev/null
+fi
+
+# upstream Rackspace centos7 images have an issue where cloud-init is
+# installed via pip because there were not official packages when the
+# image was created (fix in the works).  Remove all pip packages
+# before we do anything else
+if [[ $DISTRO = "rhel7" && is_rackspace ]]; then
+    (sudo pip freeze | xargs sudo pip uninstall -y) || true
 fi
 
 # Some distros need to add repos beyond the defaults provided by the vendor
 # to pick up required packages.
 
-if [[ is_fedora && $DISTRO =~ (rhel) ]]; then
+if [[ is_fedora && $DISTRO == "rhel6" ]]; then
     # Installing Open vSwitch on RHEL requires enabling the RDO repo.
     RHEL6_RDO_REPO_RPM=${RHEL6_RDO_REPO_RPM:-"http://rdo.fedorapeople.org/openstack-icehouse/rdo-release-icehouse.rpm"}
     RHEL6_RDO_REPO_ID=${RHEL6_RDO_REPO_ID:-"openstack-icehouse"}
@@ -228,10 +236,13 @@ if [[ is_fedora && $DISTRO =~ (rhel) ]]; then
         yum_install $RHEL6_RDO_REPO_RPM || \
             die $LINENO "Error installing RDO repo, cannot continue"
     fi
+fi
+
+if [[ is_fedora && ( $DISTRO == "rhel6" || $DISTRO == "rhel7" ) ]]; then
     # RHEL requires EPEL for many Open Stack dependencies
-    if [[ $DISTRO =~ (rhel7) ]]; then
+    if [[ $DISTRO == "rhel7" ]]; then
         EPEL_RPM=${RHEL7_EPEL_RPM:-"http://dl.fedoraproject.org/pub/epel/beta/7/x86_64/epel-release-7-0.2.noarch.rpm"}
-    else
+    elif [[ $DISTRO == "rhel6" ]]; then
         EPEL_RPM=${RHEL6_EPEL_RPM:-"http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm"}
     fi
     if ! sudo yum repolist enabled epel | grep -q 'epel'; then
@@ -242,13 +253,12 @@ if [[ is_fedora && $DISTRO =~ (rhel) ]]; then
 
     # ... and also optional to be enabled
     is_package_installed yum-utils || install_package yum-utils
-    if [[ $DISTRO =~ (rhel7) ]]; then
+    if [[ $DISTRO == "rhel7" ]]; then
         OPTIONAL_REPO=rhel-7-server-optional-rpms
-    else
+    elif [[ $DISTRO == "rhel6" ]]; then
         OPTIONAL_REPO=rhel-6-server-optional-rpms
     fi
     sudo yum-config-manager --enable ${OPTIONAL_REPO}
-
 fi
 
 # Filesystem setup
@@ -472,6 +482,10 @@ if is_service_enabled s-proxy; then
     # ``SWIFT_HASH`` is a random unique string for a swift cluster that
     # can never change.
     read_password SWIFT_HASH "ENTER A RANDOM SWIFT HASH."
+
+    if [[ -z "$SWIFT_TEMPURL_KEY" ]] && [[ "$SWIFT_ENABLE_TEMPURLS" == "True" ]]; then
+        read_password SWIFT_TEMPURL_KEY "ENTER A KEY FOR SWIFT TEMPURLS."
+    fi
 fi
 
 
@@ -518,7 +532,7 @@ function echo_nolog {
     echo $@ >&3
 }
 
-if [[ is_fedora && $DISTRO =~ (rhel) ]]; then
+if [[ is_fedora && $DISTRO == "rhel6" ]]; then
     # poor old python2.6 doesn't have argparse by default, which
     # outfilter.py uses
     is_package_installed python-argparse || install_package python-argparse

@@ -52,7 +52,11 @@ TEMPEST_STATE_PATH=${TEMPEST_STATE_PATH:=$DATA_DIR/tempest}
 NOVA_SOURCE_DIR=$DEST/nova
 
 BUILD_INTERVAL=1
-BUILD_TIMEOUT=196
+
+# This is the timeout that tempest will wait for a VM to change state,
+# spawn, delete, etc.
+# The default is set to 196 seconds.
+BUILD_TIMEOUT=${BUILD_TIMEOUT:-196}
 
 
 BOTO_MATERIALS_PATH="$FILES/images/s3-materials/cirros-${CIRROS_VERSION}"
@@ -354,7 +358,7 @@ function configure_tempest {
     fi
 
     if [ $TEMPEST_VOLUME_DRIVER != "default" ]; then
-        iniset $TEMPEST_CONFIG volume vendor_name $TEMPEST_VOLUME_VENDOR
+        iniset $TEMPEST_CONFIG volume vendor_name "$TEMPEST_VOLUME_VENDOR"
         iniset $TEMPEST_CONFIG volume storage_protocol $TEMPEST_STORAGE_PROTOCOL
     fi
 
@@ -371,6 +375,15 @@ function configure_tempest {
     # Baremetal
     if [ "$VIRT_DRIVER" = "ironic" ] ; then
         iniset $TEMPEST_CONFIG baremetal driver_enabled True
+        iniset $TEMPEST_CONFIG compute-feature-enabled change_password False
+        iniset $TEMPEST_CONFIG compute-feature-enabled console_output False
+        iniset $TEMPEST_CONFIG compute-feature-enabled interface_attach False
+        iniset $TEMPEST_CONFIG compute-feature-enabled live_migration False
+        iniset $TEMPEST_CONFIG compute-feature-enabled pause False
+        iniset $TEMPEST_CONFIG compute-feature-enabled rescue False
+        iniset $TEMPEST_CONFIG compute-feature-enabled resize False
+        iniset $TEMPEST_CONFIG compute-feature-enabled shelve False
+        iniset $TEMPEST_CONFIG compute-feature-enabled snapshot False
     fi
 
     # service_available
