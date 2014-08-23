@@ -631,7 +631,11 @@ function exit_trap {
 
     if [[ $r -ne 0 ]]; then
         echo "Error on exit"
-        ./tools/worlddump.py -d $LOGDIR
+        if [[ -z $LOGDIR ]]; then
+            ./tools/worlddump.py
+        else
+            ./tools/worlddump.py -d $LOGDIR
+        fi
     fi
 
     exit $r
@@ -674,7 +678,7 @@ if [[ "$OFFLINE" != "True" ]]; then
 fi
 
 # Do the ugly hacks for broken packages and distros
-$TOP_DIR/tools/fixup_stuff.sh
+source $TOP_DIR/tools/fixup_stuff.sh
 
 
 # Extras Pre-install
@@ -808,6 +812,7 @@ fi
 
 if is_service_enabled heat; then
     install_heat
+    install_heat_other
     cleanup_heat
     configure_heat
 fi
@@ -1267,6 +1272,10 @@ if is_service_enabled heat; then
     init_heat
     echo_summary "Starting Heat"
     start_heat
+    if [ "$HEAT_CREATE_TEST_IMAGE" = "True" ]; then
+        echo_summary "Building Heat functional test image"
+        build_heat_functional_test_image
+    fi
 fi
 
 
