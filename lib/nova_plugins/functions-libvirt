@@ -1,3 +1,5 @@
+#!/bin/bash
+#
 # lib/nova_plugins/functions-libvirt
 # Common libvirt configuration functions
 
@@ -6,46 +8,107 @@
 # ``STACK_USER`` has to be defined
 
 # Save trace setting
-LV_XTRACE=$(set +o | grep xtrace)
+_XTRACE_NOVA_FN_LIBVIRT=$(set +o | grep xtrace)
 set +o xtrace
 
 # Defaults
-# -------
+# --------
 
-# if we should turn on massive libvirt debugging
-DEBUG_LIBVIRT=$(trueorfalse False $DEBUG_LIBVIRT)
+# Turn on selective debug log filters for libvirt.
+# (NOTE: Enabling this by default, because the log filters enabled in
+# 'configure_libvirt' function further below are _selective_ and not
+# extremely verbose.)
+DEBUG_LIBVIRT=$(trueorfalse True DEBUG_LIBVIRT)
+
+# Try to enable coredumps for libvirt
+# Currently fairly specific to OpenStackCI hosts
+DEBUG_LIBVIRT_COREDUMPS=$(trueorfalse False DEBUG_LIBVIRT_COREDUMPS)
+
+# Enable the Fedora Virtualization Preview Copr repo that provides the latest
+# rawhide builds of QEMU, Libvirt and other virt tools.
+ENABLE_FEDORA_VIRT_PREVIEW_REPO=$(trueorfalse False ENABLE_FEDORA_VIRT_PREVIEW_REPO)
+
+# Enable coredumps for libvirt
+#  Bug: https://bugs.launchpad.net/nova/+bug/1643911
+function _enable_coredump {
+    local confdir=/etc/systemd/system/libvirtd.service.d
+    local conffile=${confdir}/coredump.conf
+
+    # Create a coredump directory, and instruct the kernel to save to
+    # here
+    sudo mkdir -p /var/core
+    sudo chmod a+wrx /var/core
+    echo '/var/core/core.%e.%p.%h.%t' | \
+        sudo tee /proc/sys/kernel/core_pattern
+
+    # Drop a config file to up the core ulimit
+    sudo mkdir -p ${confdir}
+    sudo tee ${conffile} <<EOF
+[Service]
+LimitCORE=infinity
+EOF
+
+    # Tell systemd to reload the unit (service restarts later after
+    # config anyway)
+    sudo systemctl daemon-reload
+}
+
 
 # Installs required distro-specific libvirt packages.
 function install_libvirt {
+    # NOTE(yoctozepto): The common consensus [1] is that libvirt-python should
+    # be installed from distro packages. However, various projects might be
+    # trying to ensure it is installed using pip AND use upper-constraints
+    # with that, causing pip to try to upgrade it and to fail.
+    # The following line removes libvirt-python from upper-constraints and
+    # avoids the situation described above. Now only if installed packages
+    # explicitly depend on a newer (or, in general, incompatible) libvirt-python
+    # version, will pip try to reinstall it.
+    # [1] https://review.opendev.org/c/openstack/devstack/+/798514
+    $REQUIREMENTS_DIR/.venv/bin/edit-constraints \
+            $REQUIREMENTS_DIR/upper-constraints.txt -- libvirt-python
+
     if is_ubuntu; then
-        install_package qemu-kvm
-        install_package libvirt-bin
-        install_package python-libvirt
-        install_package python-guestfs
-    elif is_fedora || is_suse; then
-        install_package kvm
-        install_package libvirt
-        install_package libvirt-python
-        install_package python-libguestfs
+        install_package qemu-system libvirt-clients libvirt-daemon-system libvirt-dev python3-libvirt systemd-coredump
+        if is_arch "aarch64"; then
+            install_package qemu-efi
+        fi
+        #pip_install_gr <there-si-no-guestfs-in-pypi>
+    elif is_fedora; then
+
+        # Optionally enable the virt-preview repo when on Fedora
+        if [[ $DISTRO =~ f[0-9][0-9] ]] && [[ ${ENABLE_FEDORA_VIRT_PREVIEW_REPO} == "True" ]]; then
+            # https://copr.fedorainfracloud.org/coprs/g/virtmaint-sig/virt-preview/
+            sudo dnf copr enable -y @virtmaint-sig/virt-preview
+        fi
+
+        if is_openeuler; then
+            qemu_package=qemu
+        else
+            qemu_package=qemu-kvm
+        fi
+
+        # Note that in CentOS/RHEL this needs to come from the RDO
+        # repositories (qemu-kvm-ev ... which provides this package)
+        # as the base system version is too old.  We should have
+        # pre-installed these
+        install_package $qemu_package
+        install_package libvirt libvirt-devel python3-libvirt
+
+        if is_arch "aarch64"; then
+            install_package edk2-aarch64
+        fi
     fi
 
-    # Restart firewalld after install of libvirt to avoid a problem
-    # with polkit, which libvirtd brings in.  See
-    # https://bugzilla.redhat.com/show_bug.cgi?id=1099031
-
-    # Note there is a difference between F20 rackspace cloud images
-    # and HP images used in the gate; rackspace has firewalld but hp
-    # cloud doesn't.  RHEL6 doesn't have firewalld either.  So we
-    # don't care if it fails.
-    if is_fedora; then
-        sudo service firewalld restart || true
+    if [[ $DEBUG_LIBVIRT_COREDUMPS == True ]]; then
+        _enable_coredump
     fi
 }
 
 # Configures the installed libvirt system so that is accessible by
 # STACK_USER via qemu:///system with management capabilities.
 function configure_libvirt {
-    if is_service_enabled neutron && is_neutron_ovs_base_plugin && ! sudo grep -q '^cgroup_device_acl' $QEMU_CONF; then
+    if is_service_enabled neutron && ! sudo grep -q '^cgroup_device_acl' $QEMU_CONF; then
         # Add /dev/net/tun to cgroup_device_acls, needed for type=ethernet interfaces
         cat <<EOF | sudo tee -a $QEMU_CONF
 cgroup_device_acl = [
@@ -53,45 +116,18 @@ cgroup_device_acl = [
     "/dev/random", "/dev/urandom",
     "/dev/ptmx", "/dev/kvm", "/dev/kqemu",
     "/dev/rtc", "/dev/hpet","/dev/net/tun",
+    "/dev/vfio/vfio",
 ]
 EOF
     fi
 
-    if is_ubuntu; then
-        LIBVIRT_DAEMON=libvirt-bin
-    else
-        LIBVIRT_DAEMON=libvirtd
-    fi
-
-    if is_fedora || is_suse; then
-        if is_fedora && [[ $DISTRO =~ (rhel6) || "$os_RELEASE" -le "17" ]]; then
-            cat <<EOF | sudo tee /etc/polkit-1/localauthority/50-local.d/50-libvirt-remote-access.pkla
-[libvirt Management Access]
-Identity=unix-group:$LIBVIRT_GROUP
-Action=org.libvirt.unix.manage
-ResultAny=yes
-ResultInactive=yes
-ResultActive=yes
-EOF
-        elif is_suse && [[ $os_RELEASE = 12.2 || "$os_VENDOR" = "SUSE LINUX" ]]; then
-            # openSUSE < 12.3 or SLE
-            # Work around the fact that polkit-default-privs overrules pklas
-            # with 'unix-group:$group'.
-            cat <<EOF | sudo tee /etc/polkit-1/localauthority/50-local.d/50-libvirt-remote-access.pkla
-[libvirt Management Access]
-Identity=unix-user:$STACK_USER
-Action=org.libvirt.unix.manage
-ResultAny=yes
-ResultInactive=yes
-ResultActive=yes
-EOF
-        else
-            # Starting with fedora 18 and opensuse-12.3 enable stack-user to
-            # virsh -c qemu:///system by creating a policy-kit rule for
-            # stack-user using the new Javascript syntax
-            rules_dir=/etc/polkit-1/rules.d
-            sudo mkdir -p $rules_dir
-            cat <<EOF | sudo tee $rules_dir/50-libvirt-$STACK_USER.rules
+    if is_fedora; then
+        # Starting with fedora 18 enable stack-user to
+        # virsh -c qemu:///system by creating a policy-kit rule for
+        # stack-user using the new Javascript syntax
+        rules_dir=/etc/polkit-1/rules.d
+        sudo mkdir -p $rules_dir
+        cat <<EOF | sudo tee $rules_dir/50-libvirt-$STACK_USER.rules
 polkit.addRule(function(action, subject) {
     if (action.id == 'org.libvirt.unix.manage' &&
         subject.user == '$STACK_USER') {
@@ -99,8 +135,7 @@ polkit.addRule(function(action, subject) {
     }
 });
 EOF
-            unset rules_dir
-        fi
+        unset rules_dir
     fi
 
     # The user that nova runs as needs to be member of **libvirtd** group otherwise
@@ -117,28 +152,49 @@ EOF
             # source file paths, not relative paths. This screws with the matching
             # of '1:libvirt' making everything turn on. So use libvirt.c for now.
             # This will have to be re-visited when Ubuntu ships libvirt >= 1.2.3
-            local log_filters="1:libvirt.c 1:qemu 1:conf 1:security 3:object 3:event 3:json 3:file 1:util"
+            local log_filters="1:libvirt.c 1:qemu 1:conf 1:security 3:object 3:event 3:json 3:file 1:util 1:cpu"
         else
-            local log_filters="1:libvirt 1:qemu 1:conf 1:security 3:object 3:event 3:json 3:file 1:util"
+            local log_filters="1:libvirt 1:qemu 1:conf 1:security 3:object 3:event 3:json 3:file 1:util 1:cpu"
         fi
         local log_outputs="1:file:/var/log/libvirt/libvirtd.log"
-        if ! grep -q "log_filters=\"$log_filters\"" /etc/libvirt/libvirtd.conf; then
+        if ! sudo grep -q "^log_filters=\"$log_filters\"" /etc/libvirt/libvirtd.conf; then
             echo "log_filters=\"$log_filters\"" | sudo tee -a /etc/libvirt/libvirtd.conf
         fi
-        if ! grep -q "log_outputs=\"$log_outputs\"" /etc/libvirt/libvirtd.conf; then
+        if ! sudo grep -q "^log_outputs=\"$log_outputs\"" /etc/libvirt/libvirtd.conf; then
             echo "log_outputs=\"$log_outputs\"" | sudo tee -a /etc/libvirt/libvirtd.conf
         fi
     fi
 
-    # libvirt detects various settings on startup, as we potentially changed
-    # the system configuration (modules, filesystems), we need to restart
-    # libvirt to detect those changes.
-    restart_service $LIBVIRT_DAEMON
+    if is_nova_console_proxy_compute_tls_enabled ; then
+        echo "vnc_tls = 1" | sudo tee -a $QEMU_CONF
+        echo "vnc_tls_x509_verify = 1" | sudo tee -a $QEMU_CONF
+
+        sudo mkdir -p /etc/pki/libvirt-vnc
+        deploy_int_CA /etc/pki/libvirt-vnc/ca-cert.pem
+        deploy_int_cert /etc/pki/libvirt-vnc/server-cert.pem /etc/pki/libvirt-vnc/server-key.pem
+        # OpenSSL 1.1.0 generates the key file with permissions: 600, by
+        # default and the deploy_int* methods use 'sudo cp' to copy the
+        # files, making them owned by root:root.
+        # Change ownership of everything under /etc/pki/libvirt-vnc to
+        # libvirt-qemu:libvirt-qemu so that libvirt-qemu can read the key
+        # file.
+        sudo chown -R libvirt-qemu:libvirt-qemu /etc/pki/libvirt-vnc
+    fi
+
+    # Service needs to be started on redhat/fedora -- do a restart for
+    # sanity after fiddling the config.
+    restart_service libvirtd
+
+    # Restart virtlogd companion service to ensure it is running properly
+    #  https://bugs.launchpad.net/ubuntu/+source/libvirt/+bug/1577455
+    #  https://bugzilla.redhat.com/show_bug.cgi?id=1290357
+    # (not all platforms have it; libvirt 1.3+ only, thus the ignore)
+    restart_service virtlogd || true
 }
 
 
 # Restore xtrace
-$LV_XTRACE
+$_XTRACE_NOVA_FN_LIBVIRT
 
 # Local variables:
 # mode: shell-script

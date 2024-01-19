@@ -1,3 +1,5 @@
+#!/bin/bash
+#
 # lib/ldap
 # Functions to control the installation and configuration of **ldap**
 
@@ -6,7 +8,7 @@
 # - install_ldap()
 
 # Save trace setting
-XTRACE=$(set +o | grep xtrace)
+_XTRACE_LDAP=$(set +o | grep xtrace)
 set +o xtrace
 
 
@@ -31,16 +33,12 @@ LDAP_SERVICE_NAME=slapd
 
 if is_ubuntu; then
     LDAP_OLCDB_NUMBER=1
+    LDAP_OLCDB_TYPE=mdb
     LDAP_ROOTPW_COMMAND=replace
 elif is_fedora; then
     LDAP_OLCDB_NUMBER=2
+    LDAP_OLCDB_TYPE=hdb
     LDAP_ROOTPW_COMMAND=add
-elif is_suse; then
-    # SUSE has slappasswd in /usr/sbin/
-    PATH=$PATH:/usr/sbin/
-    LDAP_OLCDB_NUMBER=1
-    LDAP_ROOTPW_COMMAND=add
-    LDAP_SERVICE_NAME=ldap
 fi
 
 
@@ -51,9 +49,11 @@ fi
 # _ldap_varsubst file
 function _ldap_varsubst {
     local infile=$1
+    local slappass=$2
     sed -e "
         s|\${LDAP_OLCDB_NUMBER}|$LDAP_OLCDB_NUMBER|
-        s|\${SLAPPASS}|$SLAPPASS|
+        s|\${LDAP_OLCDB_TYPE}|$LDAP_OLCDB_TYPE|
+        s|\${SLAPPASS}|$slappass|
         s|\${LDAP_ROOTPW_COMMAND}|$LDAP_ROOTPW_COMMAND|
         s|\${BASE_DC}|$LDAP_BASE_DC|
         s|\${BASE_DN}|$LDAP_BASE_DN|
@@ -69,8 +69,6 @@ function cleanup_ldap {
         sudo rm -rf /etc/ldap/ldap.conf /var/lib/ldap
     elif is_fedora; then
         sudo rm -rf /etc/openldap /var/lib/ldap
-    elif is_suse; then
-        sudo rm -rf /var/lib/ldap
     fi
 }
 
@@ -79,7 +77,8 @@ function cleanup_ldap {
 function init_ldap {
     local keystone_ldif
 
-    TMP_LDAP_DIR=$(mktemp -d -t ldap.$$.XXXXXXXXXX)
+    local tmp_ldap_dir
+    tmp_ldap_dir=$(mktemp -d -t ldap.$$.XXXXXXXXXX)
 
     # Remove data but not schemas
     clear_ldap_state
@@ -91,17 +90,17 @@ function init_ldap {
         printf "Configuring LDAP for $LDAP_BASE_DC\n"
         # If BASE_DN is changed, the user may override the default file
         if [[ -r $FILES/ldap/${LDAP_BASE_DC}.ldif.in ]]; then
-            keystone_ldif=${LDAP_BASE_DC}.ldif
+            local keystone_ldif=${LDAP_BASE_DC}.ldif
         else
-            keystone_ldif=keystone.ldif
+            local keystone_ldif=keystone.ldif
         fi
-        _ldap_varsubst $FILES/ldap/${keystone_ldif}.in >$TMP_LDAP_DIR/${keystone_ldif}
-        if [[ -r $TMP_LDAP_DIR/${keystone_ldif} ]]; then
-            ldapadd -x -w $LDAP_PASSWORD -D "$LDAP_MANAGER_DN" -H $LDAP_URL -c -f $TMP_LDAP_DIR/${keystone_ldif}
+        _ldap_varsubst $FILES/ldap/${keystone_ldif}.in >$tmp_ldap_dir/${keystone_ldif}
+        if [[ -r $tmp_ldap_dir/${keystone_ldif} ]]; then
+            ldapadd -x -w $LDAP_PASSWORD -D "$LDAP_MANAGER_DN" -H $LDAP_URL -c -f $tmp_ldap_dir/${keystone_ldif}
         fi
     fi
 
-    rm -rf TMP_LDAP_DIR
+    rm -rf $tmp_ldap_dir
 }
 
 # install_ldap
@@ -110,28 +109,24 @@ function install_ldap {
     echo "Installing LDAP inside function"
     echo "os_VENDOR is $os_VENDOR"
 
-    TMP_LDAP_DIR=$(mktemp -d -t ldap.$$.XXXXXXXXXX)
+    local tmp_ldap_dir
+    tmp_ldap_dir=$(mktemp -d -t ldap.$$.XXXXXXXXXX)
 
     printf "installing OpenLDAP"
     if is_ubuntu; then
-        # Ubuntu automatically starts LDAP so no need to call start_ldap()
-        :
+        configure_ldap
     elif is_fedora; then
-        start_ldap
-    elif is_suse; then
-        _ldap_varsubst $FILES/ldap/suse-base-config.ldif.in >$TMP_LDAP_DIR/suse-base-config.ldif
-        sudo slapadd -F /etc/openldap/slapd.d/ -bcn=config -l $TMP_LDAP_DIR/suse-base-config.ldif
-        sudo sed -i '/^OPENLDAP_START_LDAPI=/s/"no"/"yes"/g' /etc/sysconfig/openldap
         start_ldap
     fi
 
     echo "LDAP_PASSWORD is $LDAP_PASSWORD"
-    SLAPPASS=$(slappasswd -s $LDAP_PASSWORD)
-    printf "LDAP secret is $SLAPPASS\n"
+    local slappass
+    slappass=$(slappasswd -s $LDAP_PASSWORD)
+    printf "LDAP secret is $slappass\n"
 
     # Create manager.ldif and add to olcdb
-    _ldap_varsubst $FILES/ldap/manager.ldif.in >$TMP_LDAP_DIR/manager.ldif
-    sudo ldapmodify -Y EXTERNAL -H ldapi:/// -f $TMP_LDAP_DIR/manager.ldif
+    _ldap_varsubst $FILES/ldap/manager.ldif.in $slappass >$tmp_ldap_dir/manager.ldif
+    sudo ldapmodify -Y EXTERNAL -H ldapi:/// -f $tmp_ldap_dir/manager.ldif
 
     # On fedora we need to manually add cosine and inetorgperson schemas
     if is_fedora; then
@@ -139,7 +134,28 @@ function install_ldap {
         sudo ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/inetorgperson.ldif
     fi
 
-    rm -rf TMP_LDAP_DIR
+    rm -rf $tmp_ldap_dir
+}
+
+# configure_ldap() - Configure LDAP - reconfigure slapd
+function configure_ldap {
+    sudo debconf-set-selections <<EOF
+    slapd slapd/internal/generated_adminpw password $LDAP_PASSWORD
+    slapd slapd/internal/adminpw password $LDAP_PASSWORD
+    slapd slapd/password2 password $LDAP_PASSWORD
+    slapd slapd/password1 password $LDAP_PASSWORD
+    slapd slapd/dump_database_destdir string /var/backups/slapd-VERSION
+    slapd slapd/domain string Users
+    slapd shared/organization string $LDAP_DOMAIN
+    slapd slapd/backend string ${LDAP_OLCDB_TYPE^^}
+    slapd slapd/purge_database boolean true
+    slapd slapd/move_old_database boolean true
+    slapd slapd/allow_ldap_v2 boolean false
+    slapd slapd/no_configuration boolean false
+    slapd slapd/dump_database select when needed
+EOF
+    sudo apt-get install -y slapd ldap-utils
+    sudo dpkg-reconfigure -f noninteractive $LDAP_SERVICE_NAME
 }
 
 # start_ldap() - Start LDAP
@@ -158,7 +174,7 @@ function clear_ldap_state {
 }
 
 # Restore xtrace
-$XTRACE
+$_XTRACE_LDAP
 
 # Tell emacs to use shell-script-mode
 ## Local variables:

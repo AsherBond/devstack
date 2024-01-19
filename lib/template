@@ -1,3 +1,5 @@
+#!/bin/bash
+#
 # lib/template
 # Functions to control the configuration and operation of the XXXX service
 # <do not include this template file in ``stack.sh``!>
@@ -19,7 +21,7 @@
 # - cleanup_XXXX
 
 # Save trace setting
-XTRACE=$(set +o | grep xtrace)
+_XTRACE_TEMPLATE=$(set +o | grep xtrace)
 set +o xtrace
 
 
@@ -33,12 +35,13 @@ XXXX_DIR=$DEST/XXXX
 XXX_CONF_DIR=/etc/XXXX
 
 
-# Entry Points
-# ------------
+# Functions
+# ---------
 
 # Test if any XXXX services are enabled
 # is_XXXX_enabled
 function is_XXXX_enabled {
+    [[ ,${DISABLED_SERVICES} =~ ,"XXXX" ]] && return 1
     [[ ,${ENABLED_SERVICES} =~ ,"XX-" ]] && return 0
     return 1
 }
@@ -60,6 +63,11 @@ function configure_XXXX {
     :
 }
 
+# create_XXXX_accounts() - Create required service accounts
+function create_XXXX_accounts {
+    :
+}
+
 # init_XXXX() - Initialize databases, etc.
 function init_XXXX {
     # clean up from previous (possibly aborted) runs
@@ -73,20 +81,24 @@ function install_XXXX {
     :
 }
 
-# start_XXXX() - Start running processes, including screen
+# start_XXXX() - Start running processes
 function start_XXXX {
-    # screen_it XXXX "cd $XXXX_DIR && $XXXX_DIR/bin/XXXX-bin"
+    # The quoted command must be a single command and not include an
+    # shell metacharacters, redirections or shell builtins.
+    # run_process XXXX "$XXXX_DIR/bin/XXXX-bin"
     :
 }
 
-# stop_XXXX() - Stop running processes (non-screen)
+# stop_XXXX() - Stop running processes
 function stop_XXXX {
-    # FIXME(dtroyer): stop only our screen screen window?
+    # for serv in serv-a serv-b; do
+    #     stop_process $serv
+    # done
     :
 }
 
 # Restore xtrace
-$XTRACE
+$_XTRACE_TEMPLATE
 
 # Tell emacs to use shell-script-mode
 ## Local variables:

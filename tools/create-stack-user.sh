@@ -17,14 +17,14 @@
 
 set -o errexit
 
-# Keep track of the devstack directory
+# Keep track of the DevStack directory
 TOP_DIR=$(cd $(dirname "$0")/.. && pwd)
 
 # Import common functions
 source $TOP_DIR/functions
 
 # Determine what system we are running on.  This provides ``os_VENDOR``,
-# ``os_RELEASE``, ``os_UPDATE``, ``os_PACKAGE``, ``os_CODENAME``
+# ``os_RELEASE``, ``os_PACKAGE``, ``os_CODENAME``
 # and ``DISTRO``
 GetDistro
 
@@ -32,7 +32,7 @@ GetDistro
 source $TOP_DIR/stackrc
 
 # Give the non-root user the ability to run as **root** via ``sudo``
-is_package_installed sudo || install_package sudo
+is_package_installed sudo || is_package_installed sudo-ldap || install_package sudo
 
 [[ -z "$STACK_USER" ]] && die "STACK_USER is not set. Exiting."
 
@@ -44,6 +44,15 @@ fi
 if ! getent passwd $STACK_USER >/dev/null; then
     echo "Creating a user called $STACK_USER"
     useradd -g $STACK_USER -s /bin/bash -d $DEST -m $STACK_USER
+    # RHEL based distros create home dir with 700 permissions,
+    # And Ubuntu 21.04+ with 750, i.e missing executable
+    # permission for either group or others
+    # Devstack deploy will have issues with this, fix it by
+    # adding executable permission
+    if [[ $(stat -c '%A' $DEST|grep -o x|wc -l) -lt 3 ]]; then
+        echo "Executable permission missing for $DEST, adding it"
+        chmod +x $DEST
+    fi
 fi
 
 echo "Giving stack user passwordless sudo privileges"

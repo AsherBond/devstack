@@ -1,7 +1,10 @@
-# Stuff for diablo volumes
+cryptsetup
+dosfstools
+genisoimage # not:rhel9
 iscsi-initiator-utils
+libosinfo
 lvm2
-genisoimage
-sysfsutils
 sg3_utils
-python-libguestfs # NOPRIME
+# Stuff for diablo volumes
+sysfsutils
+xorriso # not:rhel8

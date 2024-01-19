@@ -1,8 +1,10 @@
-# Neuton Big Switch/FloodLight plugin
+#!/bin/bash
+#
+# Neutron Big Switch/FloodLight plugin
 # ------------------------------------
 
 # Save trace setting
-BS_XTRACE=$(set +o | grep xtrace)
+_XTRACE_NEUTRON_BIGSWITCH=$(set +o | grep xtrace)
 set +o xtrace
 
 source $TOP_DIR/lib/neutron_plugins/ovs_base
@@ -22,10 +24,6 @@ function neutron_plugin_configure_common {
     Q_PLUGIN_CLASS="neutron.plugins.bigswitch.plugin.NeutronRestProxyV2"
     BS_FL_CONTROLLERS_PORT=${BS_FL_CONTROLLERS_PORT:-localhost:80}
     BS_FL_CONTROLLER_TIMEOUT=${BS_FL_CONTROLLER_TIMEOUT:-10}
-}
-
-function neutron_plugin_configure_debug_command {
-    _neutron_ovs_base_configure_debug_command
 }
 
 function neutron_plugin_configure_dhcp_agent {
@@ -56,9 +54,9 @@ function neutron_plugin_configure_service {
 function neutron_plugin_setup_interface_driver {
     local conf_file=$1
     if [ "$BS_FL_VIF_DRIVER" = "ivs" ]; then
-        iniset $conf_file DEFAULT interface_driver neutron.agent.linux.interface.IVSInterfaceDriver
+        iniset $conf_file DEFAULT interface_driver ivs
     else
-        iniset $conf_file DEFAULT interface_driver neutron.agent.linux.interface.OVSInterfaceDriver
+        iniset $conf_file DEFAULT interface_driver openvswitch
     fi
 }
 
@@ -69,8 +67,8 @@ function has_neutron_plugin_security_group {
 }
 
 function neutron_plugin_check_adv_test_requirements {
-    is_service_enabled q-agt && is_service_enabled q-dhcp && return 0
+    is_service_enabled q-agt neutron-agent && is_service_enabled q-dhcp neutron-dhcp && return 0
 }
 
 # Restore xtrace
-$BS_XTRACE
+$_XTRACE_NEUTRON_BIGSWITCH

@@ -1,16 +1,16 @@
+#!/bin/bash
+#
 # Nuage Neutron Plugin
 # ----------------------
 
 # Save trace setting
-NU_XTRACE=$(set +o | grep xtrace)
+_XTRACE_NEUTRON_NU=$(set +o | grep xtrace)
 set +o xtrace
 
 function neutron_plugin_create_nova_conf {
+    local conf="$1"
     NOVA_OVS_BRIDGE=${NOVA_OVS_BRIDGE:-"br-int"}
-    iniset $NOVA_CONF DEFAULT neutron_ovs_bridge $NOVA_OVS_BRIDGE
-    NOVA_VIF_DRIVER=${NOVA_VIF_DRIVER:-"nova.virt.libvirt.vif.LibvirtGenericVIFDriver"}
-    LIBVIRT_FIREWALL_DRIVER=nova.virt.firewall.NoopFirewallDriver
-    iniset $NOVA_CONF DEFAULT firewall_driver $LIBVIRT_FIREWALL_DRIVER
+    iniset $conf neutron ovs_bridge $NOVA_OVS_BRIDGE
 }
 
 function neutron_plugin_install_agent_packages {
@@ -30,10 +30,6 @@ function neutron_plugin_configure_common {
     NUAGE_CNA_BASE_URI=${NUAGE_CNA_BASE_URI:-'/'}
     NUAGE_CNA_AUTH_RESOURCE=${NUAGE_CNA_AUTH_RESOURCE:-'/'}
     NUAGE_CNA_DEF_NETPART_NAME=${NUAGE_CNA_DEF_NETPART_NAME:-''}
-}
-
-function neutron_plugin_configure_debug_command {
-    :
 }
 
 function neutron_plugin_configure_dhcp_agent {
@@ -65,4 +61,4 @@ function has_neutron_plugin_security_group {
 }
 
 # Restore xtrace
-$NU_XTRACE
+$_XTRACE_NEUTRON_NU

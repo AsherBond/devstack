@@ -1,26 +1,37 @@
 Listen %PUBLICPORT%
-Listen %ADMINPORT%
+LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\" %D(us)" keystone_combined
+
+<Directory %KEYSTONE_BIN%>
+    Require all granted
+</Directory>
 
 <VirtualHost *:%PUBLICPORT%>
-    WSGIDaemonProcess keystone-public processes=5 threads=1 user=%USER% display-name=%{GROUP}
+    WSGIDaemonProcess keystone-public processes=3 threads=1 user=%USER% display-name=%{GROUP} %VIRTUALENV%
     WSGIProcessGroup keystone-public
-    WSGIScriptAlias / %PUBLICWSGI%
+    WSGIScriptAlias / %KEYSTONE_BIN%/keystone-wsgi-public
     WSGIApplicationGroup %{GLOBAL}
-    ErrorLog /var/log/%APACHE_NAME%/keystone
-    LogLevel debug
-    CustomLog /var/log/%APACHE_NAME%/access.log combined
+    WSGIPassAuthorization On
+    ErrorLogFormat "%M"
+    ErrorLog /var/log/%APACHE_NAME%/keystone.log
+    CustomLog /var/log/%APACHE_NAME%/keystone_access.log keystone_combined
+    %SSLENGINE%
+    %SSLCERTFILE%
+    %SSLKEYFILE%
 </VirtualHost>
 
-<VirtualHost *:%ADMINPORT%>
-    WSGIDaemonProcess keystone-admin processes=5 threads=1 user=%USER% display-name=%{GROUP}
-    WSGIProcessGroup keystone-admin
-    WSGIScriptAlias / %ADMINWSGI%
-    WSGIApplicationGroup %{GLOBAL}
-    ErrorLog /var/log/%APACHE_NAME%/keystone
-    LogLevel debug
-    CustomLog /var/log/%APACHE_NAME%/access.log combined
-</VirtualHost>
+%SSLLISTEN%<VirtualHost *:443>
+%SSLLISTEN%    %SSLENGINE%
+%SSLLISTEN%    %SSLCERTFILE%
+%SSLLISTEN%    %SSLKEYFILE%
+%SSLLISTEN%    SSLProtocol -all +TLSv1.3 +TLSv1.2
+%SSLLISTEN%</VirtualHost>
 
-# Workaround for missing path on RHEL6, see
-#  https://bugzilla.redhat.com/show_bug.cgi?id=1121019
-WSGISocketPrefix /var/run/%APACHE_NAME%
+Alias /identity %KEYSTONE_BIN%/keystone-wsgi-public
+<Location /identity>
+    SetHandler wsgi-script
+    Options +ExecCGI
+
+    WSGIProcessGroup keystone-public
+    WSGIApplicationGroup %{GLOBAL}
+    WSGIPassAuthorization On
+</Location>

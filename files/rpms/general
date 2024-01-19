@@ -1,32 +1,40 @@
-bridge-utils
+bc
 curl
 dbus
-euca2ools # only for testing client
+gawk
 gcc
+gcc-c++
+gettext  # used for compiling message catalogs
 git-core
+glibc-langpack-en # dist:rhel9
+graphviz # needed only for docs
+httpd
+httpd-devel
+iptables-nft # dist:rhel9
+iptables-services
+java-1.8.0-openjdk-headless
+libffi-devel
+libjpeg-turbo-devel # Pillow 3.0.0
+libxml2-devel # lxml
+libxslt-devel # lxml
+libyaml-devel
+mod_ssl # required for tls-proxy on centos 9 stream computes
+net-tools
 openssh-server
 openssl
 openssl-devel # to rebuild pyOpenSSL if needed
-libffi-devel
-libxml2-devel
-libxslt-devel
+pcre-devel # for python-pcre
+pkgconfig
+postgresql-devel  # psycopg2
 psmisc
-pylint
-python-setuptools
-python-prettytable # dist:rhel6 [1]
-python-unittest2
-python-virtualenv
-python-devel
-screen
+python3-devel
+python3-pip # not:openEuler-22.03
+python3-systemd
+redhat-rpm-config # not:openEuler-22.03  missing dep for gcc hardening flags, see rhbz#1217376
 tar
 tcpdump
 unzip
+util-linux
 wget
 which
-bc
-libyaml-devel
-
-# [1] : some of installed tools have unversioned dependencies on this,
-# but others have versioned (<=0.7).  So if a later version (0.7.1)
-# gets installed in response to an unversioned dependency, it breaks.
-# This pre-installs a compatible 0.6(ish) version from RHEL
+zlib-devel

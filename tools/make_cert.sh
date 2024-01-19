@@ -5,7 +5,7 @@
 # Create a CA hierarchy (if necessary) and server certificate
 #
 # This mimics the CA structure that DevStack sets up when ``tls_proxy`` is enabled
-# but in the curent directory unless ``DATA_DIR`` is set
+# but in the current directory unless ``DATA_DIR`` is set
 
 ENABLE_TLS=True
 DATA_DIR=${DATA_DIR:-`pwd`/ca-data}
@@ -27,7 +27,7 @@ function usage {
 }
 
 CN=$1
-if [ -z "$CN" ]]; then
+if [ -z "$CN" ]; then
     usage
 fi
 ORG_UNIT_NAME=${2:-$ORG_UNIT_NAME}
@@ -45,11 +45,12 @@ DEVSTACK_CERT=$DATA_DIR/$DEVSTACK_CERT_NAME.pem
 
 # Make sure the CA is set up
 configure_CA
+fix_system_ca_bundle_path
 init_CA
 
 # Create the server cert
 make_cert $INT_CA_DIR $DEVSTACK_CERT_NAME $DEVSTACK_HOSTNAME
 
 # Create a cert bundle
-cat $INT_CA_DIR/private/$DEVSTACK_CERT_NAME.key $INT_CA_DIR/$DEVSTACK_CERT_NAME.crt $INT_CA_DIR/cacert.pem >$DEVSTACK_CERT
-
+cat $INT_CA_DIR/private/$DEVSTACK_CERT_NAME.key \
+    $INT_CA_DIR/$DEVSTACK_CERT_NAME.crt $INT_CA_DIR/cacert.pem >$DEVSTACK_CERT

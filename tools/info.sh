@@ -2,19 +2,19 @@
 
 # **info.sh**
 
-# Produce a report on the state of devstack installs
+# Produce a report on the state of DevStack installs
 #
 # Output fields are separated with '|' chars
 # Output types are git,localrc,os,pip,pkg:
 #
 #   git|<project>|<branch>[<shaq>]
-#   localtc|<var>=<value>
+#   localrc|<var>=<value>
 #   os|<var>=<value>
 #   pip|<package>|<version>
 #   pkg|<package>|<version>
 
 function usage {
-    echo "$0 - Report on the devstack configuration"
+    echo "$0 - Report on the DevStack configuration"
     echo ""
     echo "Usage: $0"
     exit 1
@@ -52,10 +52,6 @@ GetDistro
 echo "os|distro=$DISTRO"
 echo "os|vendor=$os_VENDOR"
 echo "os|release=$os_RELEASE"
-if [ -n "$os_UPDATE" ]; then
-    echo "os|version=$os_UPDATE"
-fi
-
 
 # Repos
 # -----

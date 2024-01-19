@@ -5,22 +5,9 @@
 # fixup_stuff.sh
 #
 # All distro and package specific hacks go in here
-#
-# - prettytable 0.7.2 permissions are 600 in the package and
-#   pip 1.4 doesn't fix it (1.3 did)
-#
-# - httplib2 0.8 permissions are 600 in the package and
-#   pip 1.4 doesn't fix it (1.3 did)
-#
-# - RHEL6:
-#
-#   - set selinux not enforcing
-#   - (re)start messagebus daemon
-#   - remove distro packages python-crypto and python-lxml
-#   - pre-install hgtools to work around a bug in RHEL6 distribute
-#   - install nose 1.1 from EPEL
 
-# If TOP_DIR is set we're being sourced rather than running stand-alone
+
+# If ``TOP_DIR`` is set we're being sourced rather than running stand-alone
 # or in a sub-shell
 if [[ -z "$TOP_DIR" ]]; then
     set -o errexit
@@ -30,7 +17,7 @@ if [[ -z "$TOP_DIR" ]]; then
     TOOLS_DIR=$(cd $(dirname "$0") && pwd)
     TOP_DIR=$(cd $TOOLS_DIR/..; pwd)
 
-    # Change dir to top of devstack
+    # Change dir to top of DevStack
     cd $TOP_DIR
 
     # Import common functions
@@ -39,137 +26,101 @@ if [[ -z "$TOP_DIR" ]]; then
     FILES=$TOP_DIR/files
 fi
 
-# Keystone Port Reservation
-# -------------------------
-# Reserve and prevent $KEYSTONE_AUTH_PORT and $KEYSTONE_AUTH_PORT_INT from
-# being used as ephemeral ports by the system. The default(s) are 35357 and
-# 35358 which are in the Linux defined ephemeral port range (in disagreement
-# with the IANA ephemeral port range). This is a workaround for bug #1253482
-# where Keystone will try and bind to the port and the port will already be
-# in use as an ephemeral port by another process. This places an explicit
-# exception into the Kernel for the Keystone AUTH ports.
-keystone_ports=${KEYSTONE_AUTH_PORT:-35357},${KEYSTONE_AUTH_PORT_INT:-35358}
-
-# Get any currently reserved ports, strip off leading whitespace
-reserved_ports=$(sysctl net.ipv4.ip_local_reserved_ports | awk -F'=' '{print $2;}' | sed 's/^ //')
-
-if [[ -z "${reserved_ports}" ]]; then
-    # If there are no currently reserved ports, reserve the keystone ports
-    sudo sysctl -w net.ipv4.ip_local_reserved_ports=${keystone_ports}
-else
-    # If there are currently reserved ports, keep those and also reserve the
-    # keystone specific ports. Duplicate reservations are merged into a single
-    # reservation (or range) automatically by the kernel.
-    sudo sysctl -w net.ipv4.ip_local_reserved_ports=${keystone_ports},${reserved_ports}
-fi
-
-
 # Python Packages
 # ---------------
 
-# get_package_path python-package    # in import notation
-function get_package_path {
-    local package=$1
-    echo $(python -c "import os; import $package; print(os.path.split(os.path.realpath($package.__file__))[0])")
-}
-
-
-# Pre-install affected packages so we can fix the permissions
-# These can go away once we are confident that pip 1.4.1+ is available everywhere
-
-# Fix prettytable 0.7.2 permissions
-# Don't specify --upgrade so we use the existing package if present
-pip_install 'prettytable>0.7'
-PACKAGE_DIR=$(get_package_path prettytable)
-# Only fix version 0.7.2
-dir=$(echo $PACKAGE_DIR/prettytable-0.7.2*)
-if [[ -d $dir ]]; then
-    sudo chmod +r $dir/*
-fi
-
-# Fix httplib2 0.8 permissions
-# Don't specify --upgrade so we use the existing package if present
-pip_install httplib2
-PACKAGE_DIR=$(get_package_path httplib2)
-# Only fix version 0.8
-dir=$(echo $PACKAGE_DIR-0.8*)
-if [[ -d $dir ]]; then
-    sudo chmod +r $dir/*
-fi
-
-if is_fedora; then
+function fixup_fedora {
+    if ! is_fedora; then
+        return
+    fi
     # Disable selinux to avoid configuring to allow Apache access
     # to Horizon files (LP#1175444)
     if selinuxenabled; then
+        #persit selinux config across reboots
+        cat << EOF | sudo tee /etc/selinux/config
+SELINUX=permissive
+SELINUXTYPE=targeted
+EOF
+        # then disable at runtime
         sudo setenforce 0
     fi
-fi
 
-# RHEL6
-# -----
-
-if [[ $DISTRO =~ (rhel6) ]]; then
-
-    # install_pip.sh installs the latest setuptools over the packaged
-    # version.  We can't really uninstall the packaged version if it
-    # is there, because it may remove other important things like
-    # cloud-init.  Things work, but there can be an old egg file left
-    # around from the package that causes some really strange
-    # setuptools errors.  Remove it, if it is there
-    sudo rm -f /usr/lib/python2.6/site-packages/setuptools-0.6*.egg-info
-
-    # If the ``dbus`` package was installed by DevStack dependencies the
-    # uuid may not be generated because the service was never started (PR#598200),
-    # causing Nova to stop later on complaining that ``/var/lib/dbus/machine-id``
-    # does not exist.
-    sudo service messagebus restart
-
-    # The following workarounds break xenserver
-    if [ "$VIRT_DRIVER" != 'xenserver' ]; then
-        # An old version of ``python-crypto`` (2.0.1) may be installed on a
-        # fresh system via Anaconda and the dependency chain
-        # ``cas`` -> ``python-paramiko`` -> ``python-crypto``.
-        # ``pip uninstall pycrypto`` will remove the packaged ``.egg-info``
-        # file but leave most of the actual library files behind in
-        # ``/usr/lib64/python2.6/Crypto``. Later ``pip install pycrypto``
-        # will install over the packaged files resulting
-        # in a useless mess of old, rpm-packaged files and pip-installed files.
-        # Remove the package so that ``pip install python-crypto`` installs
-        # cleanly.
-        # Note: other RPM packages may require ``python-crypto`` as well.
-        # For example, RHEL6 does not install ``python-paramiko packages``.
-        uninstall_package python-crypto
-
-        # A similar situation occurs with ``python-lxml``, which is required by
-        # ``ipa-client``, an auditing package we don't care about.  The
-        # build-dependencies needed for ``pip install lxml`` (``gcc``,
-        # ``libxml2-dev`` and ``libxslt-dev``) are present in
-        # ``files/rpms/general``.
-        uninstall_package python-lxml
+    FORCE_FIREWALLD=$(trueorfalse False FORCE_FIREWALLD)
+    if [[ $FORCE_FIREWALLD == "False" ]]; then
+        # On Fedora 20 firewalld interacts badly with libvirt and
+        # slows things down significantly (this issue was fixed in
+        # later fedoras).  There was also an additional issue with
+        # firewalld hanging after install of libvirt with polkit [1].
+        # firewalld also causes problems with neturon+ipv6 [2]
+        #
+        # Note we do the same as the RDO packages and stop & disable,
+        # rather than remove.  This is because other packages might
+        # have the dependency [3][4].
+        #
+        # [1] https://bugzilla.redhat.com/show_bug.cgi?id=1099031
+        # [2] https://bugs.launchpad.net/neutron/+bug/1455303
+        # [3] https://github.com/redhat-openstack/openstack-puppet-modules/blob/master/firewall/manifests/linux/redhat.pp
+        # [4] https://docs.openstack.org/devstack/latest/guides/neutron.html
+        if is_package_installed firewalld; then
+            sudo systemctl disable firewalld
+            # The iptables service files are no longer included by default,
+            # at least on a baremetal Fedora 21 Server install.
+            install_package iptables-services
+            sudo systemctl enable iptables
+            sudo systemctl stop firewalld
+            sudo systemctl start iptables
+        fi
     fi
 
-    # ``setup.py`` contains a ``setup_requires`` package that is supposed
-    # to be transient.  However, RHEL6 distribute has a bug where
-    # ``setup_requires`` registers entry points that are not cleaned
-    # out properly after the setup-phase resulting in installation failures
-    # (bz#924038).  Pre-install the problem package so the ``setup_requires``
-    # dependency is satisfied and it will not be installed transiently.
-    # Note we do this before the track-depends in ``stack.sh``.
-    pip_install hgtools
+    # Since pip10, pip will refuse to uninstall files from packages
+    # that were created with distutils (rather than more modern
+    # setuptools).  This is because it technically doesn't have a
+    # manifest of what to remove.  However, in most cases, simply
+    # overwriting works.  So this hacks around those packages that
+    # have been dragged in by some other system dependency
+    sudo rm -rf /usr/lib64/python3*/site-packages/PyYAML-*.egg-info
 
+    # After updating setuptools based on the requirements, the files from the
+    # python3-setuptools RPM are deleted, it breaks some tools such as semanage
+    # (used in diskimage-builder) that use the -s flag of the python
+    # interpreter, enforcing the use of the packages from /usr/lib.
+    # Importing setuptools/pkg_resources in a such environment fails.
+    # Enforce the package re-installation to fix those applications.
+    if is_package_installed python3-setuptools; then
+        sudo dnf reinstall -y python3-setuptools
+    fi
+    # Workaround CentOS 8-stream iputils and systemd Bug
+    # https://bugzilla.redhat.com/show_bug.cgi?id=2037807
+    if [[ $os_VENDOR == "CentOSStream" && $os_RELEASE -eq 8 ]]; then
+        sudo sysctl -w net.ipv4.ping_group_range='0 2147483647'
+    fi
+}
 
-    # RHEL6's version of ``python-nose`` is incompatible with Tempest.
-    # Install nose 1.1 (Tempest-compatible) from EPEL
-    install_package python-nose1.1
-    # Add a symlink for the new nosetests to allow tox for Tempest to
-    # work unmolested.
-    sudo ln -sf /usr/bin/nosetests1.1 /usr/local/bin/nosetests
+function fixup_ovn_centos {
+    if [[ $os_VENDOR != "CentOS" ]]; then
+        return
+    fi
+    # OVN packages are part of this release for CentOS
+    yum_install centos-release-openstack-victoria
+}
 
-    # workaround for https://code.google.com/p/unittest-ext/issues/detail?id=79
-    install_package python-unittest2 patch
-    pip_install discover
-    (cd /usr/lib/python2.6/site-packages/; sudo patch <"$FILES/patches/unittest2-discover.patch" || echo 'Assume already applied')
-    # Make sure the discover.pyc is up to date
-    sudo rm /usr/lib/python2.6/site-packages/discover.pyc || true
-    sudo python -c 'import discover'
-fi
+function fixup_ubuntu {
+    if ! is_ubuntu; then
+        return
+    fi
+
+    # Since pip10, pip will refuse to uninstall files from packages
+    # that were created with distutils (rather than more modern
+    # setuptools).  This is because it technically doesn't have a
+    # manifest of what to remove.  However, in most cases, simply
+    # overwriting works.  So this hacks around those packages that
+    # have been dragged in by some other system dependency
+    sudo rm -rf /usr/lib/python3/dist-packages/PyYAML-*.egg-info
+    sudo rm -rf /usr/lib/python3/dist-packages/pyasn1_modules-*.egg-info
+    sudo rm -rf /usr/lib/python3/dist-packages/simplejson-*.egg-info
+}
+
+function fixup_all {
+    fixup_ubuntu
+    fixup_fedora
+}
