@@ -68,7 +68,7 @@ Shared Guest Interface
 .. warning::
 
    This is not a recommended configuration. Because of interactions
-   between ovs and bridging, if you reboot your box with active
+   between OVS and bridging, if you reboot your box with active
    networking you may lose network connectivity to your system.
 
 If you need your guests accessible on the network, but only have 1
@@ -114,3 +114,79 @@ For IPv6, ``FIXED_RANGE_V6`` will default to the first /64 of the value of
 ``FIXED_RANGE_V6`` will just use the value of that directly.
 ``SUBNETPOOL_PREFIX_V6`` will just default to the value of
 ``IPV6_ADDRS_SAFE_TO_USE`` directly.
+
+.. _ssh:
+
+SSH access to instances
+=======================
+
+To validate connectivity, you can create an instance using the
+``$PRIVATE_NETWORK_NAME`` network (default: ``private``), create a floating IP
+using the ``$PUBLIC_NETWORK_NAME`` network (default: ``public``), and attach
+this floating IP to the instance:
+
+.. code-block:: shell
+
+    openstack keypair create --public-key ~/.ssh/id_rsa.pub test-keypair
+    openstack server create --network private --key-name test-keypair ... test-server
+    fip_id=$(openstack floating ip create public -f value -c id)
+    openstack server add floating ip test-server ${fip_id}
+
+Once done, ensure you have enabled SSH and ICMP (ping) access for the security
+group used for the instance. You can either create a custom security group and
+specify it when creating the instance or add it after creation, or you can
+modify the ``default`` security group created by default for each project.
+Let's do the latter:
+
+.. code-block:: shell
+
+    openstack security group rule create --proto icmp --dst-port 0 default
+    openstack security group rule create --proto tcp --dst-port 22 default
+
+Finally, SSH into the instance. If you used the Cirros instance uploaded by
+default, then you can run the following:
+
+.. code-block:: shell
+
+    openstack server ssh test-server -- -l cirros
+
+This will connect using the ``cirros`` user and the keypair you configured when
+creating the instance.
+
+Remote SSH access to instances
+==============================
+
+You can also SSH to created instances on your DevStack host from other hosts.
+This can be helpful if you are e.g. deploying DevStack in a VM on an existing
+cloud and wish to do development on your local machine. To do this, you will
+either need to configure the guest to be `locally accessible <Locally
+Accessible Guests>`__ or you will need to enable tunneling for the floating IP
+address range of the ``$PUBLIC_NETWORK_NAME`` network (default: ``public``)
+defined by ``$FLOATING_RANGE`` (default: ``172.24.4.0/24``). We're going to use
+a useful utility called `shuttle`__ here, but there are many other ways to
+accomplish this.
+
+First, ensure you have allowed SSH and HTTP(S) traffic to your DevStack host.
+Allowing HTTP(S) traffic is necessary so you can use the OpenStack APIs
+remotely. How you do this will depend on where your DevStack host is running.
+
+Once this is done, install ``sshuttle`` on your localhost:
+
+.. code-block:: bash
+
+    sudo apt-get install sshuttle || yum install sshuttle
+
+Finally, start ``sshuttle`` using the floating IP address range. Assuming you
+are using the default value for ``$FLOATING_RANGE``, you can do:
+
+.. code-block:: bash
+
+    sshuttle -r username@devstack-host 172.24.4.0/24
+
+(where ``username`` and ``devstack-host`` are the username and hostname of your
+DevStack host).
+
+You should now be able to create an instance and SSH into it, using the
+instructions provided :ref:`above <ssh>`.
+
+.. __: https://github.com/sshuttle/sshuttle
