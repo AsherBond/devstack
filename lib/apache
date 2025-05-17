@@ -89,7 +89,7 @@ function install_apache_uwsgi {
     # didn't fix Python 3.10 compatibility before release.  Should be
     # fixed in uwsgi 4.9.0; can remove this when packages available
     # or we drop this release
-    elif is_fedora && ! is_openeuler && ! [[ $DISTRO =~ f36 ]]; then
+    elif is_fedora && ! is_openeuler && ! [[ $DISTRO =~ f36|rhel9 ]]; then
         # Note httpd comes with mod_proxy_uwsgi and it is loaded by
         # default; the mod_proxy_uwsgi package actually conflicts now.
         # See:
@@ -137,7 +137,7 @@ function install_apache_wsgi {
         install_package libapache2-mod-wsgi-py3
     elif is_fedora; then
         sudo rm -f /etc/httpd/conf.d/000-*
-        install_package httpd python3-mod_wsgi
+        install_package httpd python${PYTHON3_VERSION}-mod_wsgi
         # rpm distros dont enable httpd by default so enable it to support reboots.
         sudo systemctl enable httpd
         # For consistency with Ubuntu, switch to the worker mpm, as
