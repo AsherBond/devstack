@@ -244,7 +244,7 @@ function use_new_ovn_repository {
 # neutron-ovs-cleanup uses the OVSDB native interface.
 function ovn_base_setup_bridge {
     local bridge=$1
-    local addbr_cmd="sudo ovs-vsctl --no-wait -- --may-exist add-br $bridge -- set bridge $bridge protocols=OpenFlow13,OpenFlow15"
+    local addbr_cmd="sudo ovs-vsctl --no-wait -- --may-exist add-br $bridge"
 
     if [ "$OVS_DATAPATH_TYPE" != "system" ] ; then
         addbr_cmd="$addbr_cmd -- set Bridge $bridge datapath_type=${OVS_DATAPATH_TYPE}"
@@ -308,7 +308,7 @@ function clone_repository {
 
 function create_public_bridge {
     # Create the public bridge that OVN will use
-    sudo ovs-vsctl --may-exist add-br $PUBLIC_BRIDGE -- set bridge $PUBLIC_BRIDGE protocols=OpenFlow13,OpenFlow15
+    sudo ovs-vsctl --may-exist add-br $PUBLIC_BRIDGE
     sudo ovs-vsctl set open . external-ids:ovn-bridge-mappings=${OVN_BRIDGE_MAPPINGS}
     _configure_public_network_connectivity
 }
@@ -701,7 +701,7 @@ function _start_ovs {
                 echo "NEUTRON_BGP_PEER_BRIDGES must be set when ovn-bgp extension is enabled"
                 return 1
             fi
-            sudo ovs-vsctl --no-wait -- set Open_vSwitch . external-ids:neutron-bgp-peer-bridges=$NEUTRON_BGP_PEER_BRIDGES
+            sudo ovs-vsctl --no-wait -- set Open_vSwitch . external-ids:neutron-bgp-peer-bridges=$NEUTRON_BGP_PEER_BRIDGES external-ids:neutron-bgp-interconnect-bridge=$OVS_PHYSICAL_BRIDGE
         elif is_provider_network || [[ $Q_USE_PROVIDERNET_FOR_PUBLIC == "True" ]]; then
             ovn_base_setup_bridge $OVS_PHYSICAL_BRIDGE
             sudo ovs-vsctl set open . external-ids:ovn-bridge-mappings=${PHYSICAL_NETWORK}:${OVS_PHYSICAL_BRIDGE}
