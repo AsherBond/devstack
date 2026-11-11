@@ -60,6 +60,22 @@ def get_services_stats():
             for service in services]
 
 
+def get_process_memory(pid):
+    # /proc/PID/status is world-readable, unlike smaps, so this works for
+    # root-owned processes such as privsep-helper without privileges.
+    fields = {'VmHWM': 'rss_peak', 'RssAnon': 'rss_anon', 'VmSwap': 'swap'}
+    stats = {}
+    try:
+        with open(f'/proc/{pid}/status') as f:
+            for line in f:
+                key, _, value = line.partition(':')
+                if key in fields:
+                    stats[fields[key]] = int(value.split()[0]) * 1024
+    except FileNotFoundError:
+        pass
+    return stats
+
+
 def get_process_stats(proc):
     cmdline = proc.cmdline()
     if 'python' in cmdline[0]:
@@ -67,7 +83,8 @@ def get_process_stats(proc):
     return {'cmd': cmdline[0],
             'pid': proc.pid,
             'args': ' '.join(cmdline[1:]),
-            'rss': proc.memory_info().rss}
+            'rss': proc.memory_info().rss,
+            **get_process_memory(proc.pid)}
 
 
 def get_processes_stats(matches):
@@ -75,14 +92,30 @@ def get_processes_stats(matches):
     procs = psutil.process_iter()
 
     def proc_matches(proc):
+        try:
+            cmdline = ' '.join(proc.cmdline())
+        except psutil.Error:
+            # Zombies and processes that exited since process_iter()
+            return False
         return me != proc.pid and any(
-            re.search(match, ' '.join(proc.cmdline()))
-            for match in matches)
+            re.search(match, cmdline) for match in matches)
 
     return [
         get_process_stats(proc)
         for proc in procs
         if proc_matches(proc)]
+
+
+def get_swap_stats():
+    # Swap traffic since boot; zswpin/zswpout only exist with zswap.
+    counters = ('pswpin', 'pswpout', 'zswpin', 'zswpout')
+    stats = {}
+    with open('/proc/vmstat') as f:
+        for line in f:
+            key, value = line.split()
+            if key in counters:
+                stats[key] = int(value)
+    return stats
 
 
 def get_db_stats(host, user, passwd):
@@ -189,6 +222,18 @@ def get_report_info():
 
 if __name__ == '__main__':
     process_defaults = ['privsep', 'mysqld', 'erlang', 'etcd']
+    # OpenStack services. uWSGI, oslo.service and neutron rename their
+    # processes ("nova-apiuWSGI worker 1", "nova-conductor: ServiceWrapper
+    # worker(0)", "neutron-openvswitch-agent (/opt/stack/...)"). The rest
+    # run a script from a bin directory with a config file in /etc, as
+    # tempest does not; the *-manage and *-status tools are skipped by name.
+    process_defaults += [
+        r'^[\w-]+uWSGI ',
+        r'^\w+-[\w-]+: [\w ]*\bworker\b',
+        r'^\w+-[\w-]+ \(\S*python',
+        r'^\S*python[\d.]* \S+/bin/'
+        r'(?!\S+-(manage|status|rootwrap|helper|generator)\b)\S+.*[ =]/etc/',
+    ]
     parser = argparse.ArgumentParser()
     parser.add_argument('--db-user', default='root',
                         help=('MySQL user for collecting stats '
@@ -214,6 +259,7 @@ if __name__ == '__main__':
                                                         args.db_pass) or [],
         'processes': psutil and get_processes_stats(args.process) or [],
         'api': get_http_stats(args.apache_log),
+        'swap': get_swap_stats(),
         'report': get_report_info(),
     }
 
